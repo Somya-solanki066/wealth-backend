@@ -6,7 +6,8 @@
       "jwks-rsa": {
         "jose": "5.10.0"
       }
-    },
+    }
+  },
   "description": "",
   "main": "index.js",
   
