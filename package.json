@@ -19,6 +19,7 @@
     "express": "^5.2.1",
     "firebase-admin": "^14.3.0",
     "jose": "^5.10.0",
+    "jwks-rsa": "^3.2.2",
     "mammoth": "^1.12.1",
     "multer": "^2.2.0",
     "openai": "^7.5.0",
