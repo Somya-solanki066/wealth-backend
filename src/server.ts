@@ -35,6 +35,22 @@ function initFirebaseAdmin(): boolean {
     }
   }
 
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  if (projectId && clientEmail && privateKey) {
+    try {
+      initializeApp({
+        credential: cert({ projectId, clientEmail, privateKey }),
+      });
+      console.log("✔ Firebase Admin SDK initialized from FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY.");
+      return true;
+    } catch (error) {
+      console.error("✘ Error initializing Firebase Admin from split env vars:", error);
+      return false;
+    }
+  }
+
   const serviceAccountPath =
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH || "./firebase-service-account.json";
   const resolvedPath = path.resolve(serviceAccountPath);
@@ -66,14 +82,28 @@ function initFirebaseAdmin(): boolean {
 
 const firebaseAdminInitialized = initFirebaseAdmin();
 
-// Enable CORS
+const extraOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.ADMIN_URL,
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  ...extraOrigins,
+].filter(Boolean) as string[];
+
 app.use(
   cors({
-    origin: [
-      process.env.FRONTEND_URL || "http://localhost:3000",
-      "http://localhost:5173",
-      "http://localhost:5174",
-    ],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return callback(null, true);
+      return callback(null, false);
+    },
     credentials: true,
   })
 );
@@ -91,6 +121,19 @@ app.use(express.urlencoded({ extended: true }));
 
 const uploadsDir = getUploadsDir();
 app.use("/uploads", express.static(uploadsDir));
+
+// Clients sometimes call /projects instead of /api/projects
+app.use((req, res, next) => {
+  const requestPath = req.path;
+  if (
+    requestPath !== "/" &&
+    !requestPath.startsWith("/api") &&
+    !requestPath.startsWith("/uploads")
+  ) {
+    req.url = `/api${req.url.startsWith("/") ? req.url : `/${req.url}`}`;
+  }
+  next();
+});
 
 // Routes
 app.use("/api/user", userRoutes);
