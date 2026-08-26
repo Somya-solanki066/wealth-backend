@@ -13,6 +13,7 @@ import settingsRoutes from "./routes/settings.routes";
 import subscriptionRoutes from "./routes/subscription.routes";
 import contentRoutes from "./routes/content.routes";
 import stripeRoutes from "./routes/stripe.routes";
+import { getUploadsDir } from "./utils/paths";
 
 // Load environment variables
 dotenv.config();
@@ -20,39 +21,50 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Initialize Firebase Admin
-const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH || "./firebase-service-account.json";
-const resolvedPath = path.resolve(serviceAccountPath);
-
-let firebaseAdminInitialized = false;
-
-if (fs.existsSync(resolvedPath)) {
-  try {
-    const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
-    initializeApp({
-      credential: cert(serviceAccount),
-    });
-    console.log("✔ Firebase Admin SDK initialized successfully.");
-    firebaseAdminInitialized = true;
-  } catch (error) {
-    console.error("✘ Error initializing Firebase Admin SDK:", error);
+function initFirebaseAdmin(): boolean {
+  const jsonFromEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (jsonFromEnv) {
+    try {
+      const serviceAccount = JSON.parse(jsonFromEnv);
+      initializeApp({ credential: cert(serviceAccount) });
+      console.log("✔ Firebase Admin SDK initialized from FIREBASE_SERVICE_ACCOUNT.");
+      return true;
+    } catch (error) {
+      console.error("✘ Invalid FIREBASE_SERVICE_ACCOUNT JSON:", error);
+      return false;
+    }
   }
-} else {
-  console.warn(`
+
+  const serviceAccountPath =
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH || "./firebase-service-account.json";
+  const resolvedPath = path.resolve(serviceAccountPath);
+
+  if (!fs.existsSync(resolvedPath)) {
+    console.warn(`
 ┌──────────────────────────────────────────────────────────┐
 │  ⚠️  Firebase Service Account Key Not Found              │
 ├──────────────────────────────────────────────────────────┤
 │ Path: ${resolvedPath}
 │                                                          │
-│ Please:                                                  │
-│ 1. Go to Firebase Console > Project Settings.            │
-│ 2. Select Service Accounts > Generate New Private Key.   │
-│ 3. Save it to 'backend/firebase-service-account.json'.  │
-│                                                          │
-│ Note: Auth endpoints will fail until this key is added.  │
+│ Local: save the key as firebase-service-account.json     │
+│ Vercel: set FIREBASE_SERVICE_ACCOUNT env to the JSON.    │
 └──────────────────────────────────────────────────────────┘
-  `);
+    `);
+    return false;
+  }
+
+  try {
+    const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
+    initializeApp({ credential: cert(serviceAccount) });
+    console.log("✔ Firebase Admin SDK initialized successfully.");
+    return true;
+  } catch (error) {
+    console.error("✘ Error initializing Firebase Admin SDK:", error);
+    return false;
+  }
 }
+
+const firebaseAdminInitialized = initFirebaseAdmin();
 
 // Enable CORS
 app.use(
@@ -77,13 +89,7 @@ app.use((req, res, next) => {
 });
 app.use(express.urlencoded({ extended: true }));
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, "../uploads");
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Serve uploads statically
+const uploadsDir = getUploadsDir();
 app.use("/uploads", express.static(uploadsDir));
 
 // Routes
@@ -111,10 +117,11 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: err.message || "Internal Server Error" });
 });
 
-// Start the server
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server is running on http://localhost:${PORT}`);
+  });
+}
 
 export { firebaseAdminInitialized };
 export default app;

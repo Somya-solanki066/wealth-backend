@@ -3,13 +3,14 @@ import multer from "multer";
 import path from "path";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
+import { getUploadsDir } from "../utils/paths";
 
 const router = Router();
 
 // Multer disk storage setup
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, "../../uploads"));
+    cb(null, getUploadsDir());
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);

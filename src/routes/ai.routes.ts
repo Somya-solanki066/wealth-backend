@@ -5,11 +5,12 @@ import OpenAI from "openai";
 const pdfParse = require("pdf-parse");
 import mammoth from "mammoth";
 import dotenv from "dotenv";
+import { getUploadsDir } from "../utils/paths";
 
 dotenv.config();
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: getUploadsDir() });
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const PROMPT_INSTRUCTIONS = `
