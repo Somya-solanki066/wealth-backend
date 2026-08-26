@@ -9,8 +9,10 @@
     }
   },
   "description": "",
-  "main": "dist/server.js",
-  
+  "main": "src/server.ts",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",

@@ -3,9 +3,14 @@ import Stripe from 'stripe';
 import { getFirestore } from "firebase-admin/firestore";
 
 const router = express.Router();
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-   apiVersion: "2024-06-20" as any,
-});
+
+function getStripe(): Stripe {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) {
+    throw new Error("STRIPE_SECRET_KEY is not set");
+  }
+  return new Stripe(key);
+}
 
 // Configure prices - In production, you would fetch these from DB or use Stripe Price IDs
 const PLANS: Record<string, {name: string, amount: number, currency: string, durationDays: number}> = {
@@ -36,7 +41,7 @@ router.post('/create-checkout-session', async (req, res) => {
     const plan = PLANS[planId];
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       payment_method_types: ['card'],
       customer_email: email, // Pre-fill email if available
       line_items: [
@@ -79,7 +84,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
   try {
     if (!sig || !webhookSecret) throw new Error('Missing stripe signature or webhook secret');
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+    event = getStripe().webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err: any) {
     console.error(`Webhook signature verification failed:`, err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);

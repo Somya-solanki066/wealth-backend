@@ -2,7 +2,6 @@ import express from "express";
 import multer from "multer";
 import * as fs from "fs";
 import OpenAI from "openai";
-const pdfParse = require("pdf-parse");
 import mammoth from "mammoth";
 import dotenv from "dotenv";
 import { getUploadsDir } from "../utils/paths";
@@ -86,8 +85,14 @@ router.post("/smart-edit", upload.single("file"), async (req: express.Request, r
       try {
         if (mimeType === "application/pdf") {
           const dataBuffer = fs.readFileSync(filePath);
-          const pdfData = await pdfParse(dataBuffer);
-          textToAnalyze = pdfData.text;
+          const { PDFParse } = await import("pdf-parse");
+          const parser = new PDFParse({ data: dataBuffer });
+          try {
+            const pdfData = await parser.getText();
+            textToAnalyze = pdfData.text;
+          } finally {
+            await parser.destroy();
+          }
         } else if (
           mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
           mimeType === "application/msword" ||

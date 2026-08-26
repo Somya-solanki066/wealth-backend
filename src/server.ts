@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
-import { initializeApp, cert } from "firebase-admin";
+import { initializeApp, cert } from "firebase-admin/app";
 import userRoutes from "./routes/user.routes";
 import projectRoutes from "./routes/project.routes";
 import adminRoutes from "./routes/admin.routes";
@@ -117,11 +117,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: err.message || "Internal Server Error" });
 });
 
-if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server is running on http://localhost:${PORT}`);
-  });
-}
+app.listen(PORT, () => {
+  console.log(`🚀 Server is running on port ${PORT}`);
+});
 
 export { firebaseAdminInitialized };
 export default app;
