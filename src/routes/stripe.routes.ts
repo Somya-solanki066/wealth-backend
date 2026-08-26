@@ -4,7 +4,7 @@ import { getFirestore } from "firebase-admin/firestore";
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-   apiVersion: "2026-07-29.dahlia",
+   apiVersion: "2024-06-20" as any,
 });
 
 // Configure prices - In production, you would fetch these from DB or use Stripe Price IDs
