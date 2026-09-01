@@ -12,8 +12,11 @@ import aiRoutes from "./routes/ai.routes";
 import settingsRoutes from "./routes/settings.routes";
 import subscriptionRoutes from "./routes/subscription.routes";
 import contentRoutes from "./routes/content.routes";
+import catalogRoutes from "./routes/catalog.routes";
 import stripeRoutes from "./routes/stripe.routes";
+import feedbackRoutes from "./routes/feedback.routes";
 import { getUploadsDir } from "./utils/paths";
+import { verifyAdmin } from "./middleware/admin.middleware";
 
 // Load environment variables
 dotenv.config();
@@ -91,8 +94,11 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.ADMIN_URL,
   "http://localhost:3000",
+  "http://127.0.0.1:3000",
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
   "http://localhost:5174",
+  "http://127.0.0.1:5174",
   ...extraOrigins,
 ].filter(Boolean) as string[];
 
@@ -138,13 +144,15 @@ app.use((req, res, next) => {
 // Routes
 app.use("/api/user", userRoutes);
 app.use("/api/projects", projectRoutes);
-app.use("/api/data", adminRoutes);
+app.use("/api/data", verifyAdmin, adminRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/content", contentRoutes);
+app.use("/api/catalog", catalogRoutes);
 app.use("/api/stripe", stripeRoutes);
+app.use("/api/feedback", feedbackRoutes);
 
 // Root route
 app.get("/", (req, res) => {

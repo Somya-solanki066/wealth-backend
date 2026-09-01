@@ -4,6 +4,7 @@ import path from "path";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getUploadsDir } from "../utils/paths";
+import { getPlanById, isFreePlan, subscriptionFieldsForPlan } from "../utils/plans";
 
 const router = Router();
 
@@ -58,7 +59,20 @@ router.post("/verify", verifyFirebaseToken, async (req: AuthenticatedRequest, re
       return res.status(201).json(newUser);
     }
 
-    return res.status(200).json(docSnap.data());
+    const existing = docSnap.data() || {};
+    const currentName = typeof existing.displayName === "string" ? existing.displayName.trim() : "";
+    const needsName =
+      !currentName || currentName.toLowerCase() === "user";
+    if (needsName && name) {
+      await userRef.set(
+        { displayName: name, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+      const refreshed = await userRef.get();
+      return res.status(200).json(refreshed.data());
+    }
+
+    return res.status(200).json(existing);
   } catch (error: any) {
     console.error("Error in verify user route:", error);
     return res.status(500).json({ error: error.message });
@@ -205,59 +219,142 @@ router.post("/streak/record", verifyFirebaseToken, async (req: AuthenticatedRequ
     return res.status(500).json({ error: error.message });
   }
 });
-// Simulated Upgrade Endpoint for Testing
-router.post("/simulate-upgrade", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
-    const db = getFirestore();
-    
-    // Simulate dates
-    const now = new Date();
-    const expiryDate = new Date();
-    // Default to 1 year expiry for simulated upgrade for now
-    expiryDate.setFullYear(expiryDate.getFullYear() + 1);
 
-    await db.collection("users").doc(req.user.uid).update({
-      isPremium: true,
-      subscriptionPlan: req.body.planId || "plan_premium",
-      subscriptionDate: now.toISOString(),
-      subscriptionExpiry: expiryDate.toISOString(),
-    });
-    return res.status(200).json({ success: true });
-  } catch (err: any) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// Select Plan (Onboarding)
 router.post("/select-plan", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthorized" });
     const { planId } = req.body;
     if (!planId) return res.status(400).json({ error: "planId is required" });
 
-    const db = getFirestore();
-    const isPremium = planId !== "free";
-    
-    const now = new Date();
-    let expiryDate: string | null = null;
-    
-    if (isPremium) {
-      // Basic simulation based on period if provided, else default 30 days
-      const d = new Date();
-      // Assume monthly for general plans if not specified
-      d.setDate(d.getDate() + 30);
-      expiryDate = d.toISOString();
+    const plan = await getPlanById(planId);
+    if (!plan || !isFreePlan(plan)) {
+      return res.status(400).json({
+        error: "Only free plans can be selected directly. Paid plans require Stripe checkout.",
+      });
     }
-    
-    await db.collection("users").doc(req.user.uid).update({
-      subscriptionPlan: planId,
-      isPremium: isPremium,
-      subscriptionDate: now.toISOString(),
-      subscriptionExpiry: expiryDate
-    });
-    return res.status(200).json({ success: true, planId });
+
+    const db = getFirestore();
+    await db.collection("users").doc(req.user.uid).set(
+      subscriptionFieldsForPlan(plan, "select-plan"),
+      { merge: true }
+    );
+    return res.status(200).json({ success: true, planId: plan.id });
   } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+const VALID_WORLDS = ["writer", "screenwriter", "student"] as const;
+type UserWorld = (typeof VALID_WORLDS)[number];
+
+function isUserWorld(value: unknown): value is UserWorld {
+  return typeof value === "string" && (VALID_WORLDS as readonly string[]).includes(value);
+}
+
+// Current user profile (for mobile routing after login)
+router.get("/me", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const db = getFirestore();
+    const snap = await db.collection("users").doc(req.user.uid).get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "User not found. Call /user/verify first." });
+    }
+    return res.status(200).json(snap.data());
+  } catch (err: any) {
+    console.error("Error in GET /user/me:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Persist preferred world (writer | screenwriter | student)
+router.put("/world", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const world = req.body?.world;
+    if (!isUserWorld(world)) {
+      return res.status(400).json({
+        error: 'world must be "writer", "screenwriter", or "student"',
+      });
+    }
+
+    const db = getFirestore();
+    const userRef = db.collection("users").doc(req.user.uid);
+    const snap = await userRef.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "User not found. Call /user/verify first." });
+    }
+
+    const prev = snap.data() || {};
+    const worldChanged = prev.world && prev.world !== world;
+    const patch: Record<string, unknown> = {
+      world,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (worldChanged) {
+      patch.onboardingComplete = false;
+      patch.onboarding = {};
+    }
+
+    await userRef.set(patch, { merge: true });
+    const updated = await userRef.get();
+    return res.status(200).json(updated.data());
+  } catch (err: any) {
+    console.error("Error in PUT /user/world:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Merge onboarding preferences; optionally mark complete
+router.put("/onboarding", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const world = req.body?.world;
+    const data = req.body?.data;
+    const complete = req.body?.complete === true;
+
+    if (!isUserWorld(world)) {
+      return res.status(400).json({
+        error: 'world must be "writer", "screenwriter", or "student"',
+      });
+    }
+    if (data !== undefined && (typeof data !== "object" || data === null || Array.isArray(data))) {
+      return res.status(400).json({ error: "data must be an object" });
+    }
+
+    const db = getFirestore();
+    const userRef = db.collection("users").doc(req.user.uid);
+    const snap = await userRef.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "User not found. Call /user/verify first." });
+    }
+
+    const prev = snap.data() || {};
+    const prevOnboarding =
+      prev.onboarding && typeof prev.onboarding === "object" && !Array.isArray(prev.onboarding)
+        ? { ...(prev.onboarding as Record<string, unknown>) }
+        : {};
+
+    const nextOnboarding = {
+      ...prevOnboarding,
+      ...(data && typeof data === "object" ? data : {}),
+    };
+
+    const patch: Record<string, unknown> = {
+      world,
+      onboarding: nextOnboarding,
+      updatedAt: new Date().toISOString(),
+    };
+    if (complete) {
+      patch.onboardingComplete = true;
+    }
+
+    await userRef.set(patch, { merge: true });
+    const updated = await userRef.get();
+    return res.status(200).json(updated.data());
+  } catch (err: any) {
+    console.error("Error in PUT /user/onboarding:", err);
     return res.status(500).json({ error: err.message });
   }
 });

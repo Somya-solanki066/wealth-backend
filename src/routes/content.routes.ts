@@ -1,12 +1,13 @@
 import express from "express";
 import { getFirestore } from "firebase-admin/firestore";
+import { verifyAdmin } from "../middleware/admin.middleware";
 
 const router = express.Router();
 
 router.get("/:pageId", async (req, res) => {
   try {
     const db = getFirestore();
-    const { pageId } = req.params;
+    const pageId = String(req.params.pageId);
     const docRef = db.collection("page_content").doc(pageId);
     const doc = await docRef.get();
 
@@ -22,10 +23,10 @@ router.get("/:pageId", async (req, res) => {
   }
 });
 
-router.put("/:pageId", async (req, res) => {
+router.put("/:pageId", verifyAdmin, async (req, res) => {
   try {
     const db = getFirestore();
-    const { pageId } = req.params;
+    const pageId = String(req.params.pageId);
     const { content } = req.body;
 
     if (!content || typeof content !== "object") {

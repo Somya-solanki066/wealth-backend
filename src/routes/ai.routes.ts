@@ -4,42 +4,16 @@ import * as fs from "fs";
 import OpenAI from "openai";
 import mammoth from "mammoth";
 import dotenv from "dotenv";
+import { getFirestore } from "firebase-admin/firestore";
 import { getUploadsDir } from "../utils/paths";
+import { isUserPremium } from "../utils/plans";
+import { getOpenAiModel, getSmartEditPrompt } from "../utils/catalog";
+import { getAiUsageCount, recordAiUsage, countWords } from "../utils/aiUsage";
 
 dotenv.config();
 
 const router = express.Router();
 const upload = multer({ dest: getUploadsDir() });
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-const PROMPT_INSTRUCTIONS = `
-Analyze the provided text and evaluate it strictly against these 8 editing checks:
-1. Grammar
-2. Passive Voice
-3. Filler Words
-4. Stronger Verbs
-5. Repetition
-6. Pacing & Flow
-7. Dialogue Quality (if applicable)
-8. Plagiarism Check (flag potential unoriginal phrasing based on your knowledge)
-
-Format the response as a JSON object with the following exact structure:
-{
-  "overallScore": <number between 0-100>,
-  "checks": [
-    {
-      "name": "Grammar",
-      "original": "<original text snippet>",
-      "suggested": "<suggested rewrite>",
-      "feedback": "<brief explanation>"
-    },
-    ... (include all 8 checks)
-  ]
-}
-Ensure the output is ONLY valid JSON.
-`;
-
-import { getFirestore } from "firebase-admin/firestore";
 
 router.post("/smart-edit", upload.single("file"), async (req: express.Request, res: express.Response) => {
   try {
@@ -59,21 +33,15 @@ router.post("/smart-edit", upload.single("file"), async (req: express.Request, r
     // 2. Check user status
     const userRef = db.collection("users").doc(userId);
     const userSnap = await userRef.get();
-    const isPremium = userSnap.data()?.isPremium || false;
+    const isPremium = isUserPremium(userSnap.data());
 
     // 3. Enforce Limits for Free users
     if (!isPremium) {
-      const aiUsageRef = db.collection("ai_usage").doc(userId);
-      const aiUsageSnap = await aiUsageRef.get();
-      const usageCount = aiUsageSnap.exists ? (aiUsageSnap.data()?.smartEditCount || 0) : 0;
-
+      const usageCount = await getAiUsageCount(userId, "smartEditCount");
       if (usageCount >= freeLimit) {
         if (req.file) fs.unlinkSync(req.file.path);
         return res.status(403).json({ error: "Free limit exceeded", limitExceeded: true });
       }
-
-      // Increment usage
-      await aiUsageRef.set({ smartEditCount: usageCount + 1, lastUsed: new Date() }, { merge: true });
     }
 
     let textToAnalyze = req.body.text || "";
@@ -124,10 +92,11 @@ router.post("/smart-edit", upload.single("file"), async (req: express.Request, r
       textToAnalyze = textToAnalyze.substring(0, MAX_LENGTH);
     }
 
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // Using gpt-4o-mini for cost efficiency while maintaining good parsing
+      model: await getOpenAiModel(),
       messages: [
-        { role: "system", content: PROMPT_INSTRUCTIONS },
+        { role: "system", content: await getSmartEditPrompt() },
         { role: "user", content: textToAnalyze }
       ],
       response_format: { type: "json_object" }
@@ -139,6 +108,25 @@ router.post("/smart-edit", upload.single("file"), async (req: express.Request, r
     }
 
     const result = JSON.parse(aiResponse);
+    const usage = completion.usage;
+    const wordsAnalyzed = countWords(textToAnalyze);
+    const userEmail = userSnap.data()?.email || null;
+
+    await recordAiUsage({
+      userId,
+      userEmail,
+      field: "smartEditCount",
+      tool: "smart-edit",
+      wordsAnalyzed,
+      tokensUsed: usage?.total_tokens || 0,
+      promptTokens: usage?.prompt_tokens || 0,
+      completionTokens: usage?.completion_tokens || 0,
+      model: completion.model || "",
+      fileName: req.file?.originalname || "",
+      inputPreview: textToAnalyze,
+      score: result?.overallScore ?? result?.overall_score ?? null,
+    });
+
     return res.json(result);
 
   } catch (error: any) {

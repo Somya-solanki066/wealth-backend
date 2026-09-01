@@ -1,62 +1,65 @@
 import { Router, Request, Response } from "express";
+import { signAdminToken, verifyAdmin, AdminRequest } from "../middleware/admin.middleware";
 
 const router = Router();
 
-// Test connection endpoint
-router.get("/test-cookie", (req: Request, res: Response) => {
+router.get("/test-cookie", (_req: Request, res: Response) => {
   return res.status(200).json({ success: true, message: "Connected to Ink2Wealth Auth API" });
 });
 
-// Admin Email Login endpoint
-router.post("/email-login", (req: Request, res: Response) => {
-  const { email, password } = req.body;
+router.post("/email-login", async (req: Request, res: Response) => {
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const password = String(req.body?.password || "");
+  const adminEmail = String(process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const adminPassword = String(process.env.ADMIN_PASSWORD || "");
 
-  // Support both ink2wealth and old credentials for ease of test
-  if (
-    (email === "admin@ink2wealth.com" || email === "admin@fyies.com") &&
-    password === "Admin@123"
-  ) {
-    return res.status(200).json({
-      success: true,
-      token: "ink2wealth-admin-token-session-jwt-mock",
-      user: {
-        email,
-        name: "Ink2Wealth Admin",
-        role: "admin",
-      },
+  if (!adminEmail || !adminPassword) {
+    return res.status(500).json({
+      success: false,
+      message: "Admin credentials are not configured on the server.",
     });
   }
 
-  return res.status(401).json({
-    success: false,
-    message: "Invalid email or password. Please use Admin credentials.",
-  });
+  if (!email || !password || email !== adminEmail || password !== adminPassword) {
+    return res.status(401).json({
+      success: false,
+      message: "Invalid email or password.",
+    });
+  }
+
+  try {
+    const token = await signAdminToken({
+      email: adminEmail,
+      name: process.env.ADMIN_NAME || "Ink2Wealth Admin",
+    });
+
+    return res.status(200).json({
+      success: true,
+      token,
+      user: {
+        email: adminEmail,
+        name: process.env.ADMIN_NAME || "Ink2Wealth Admin",
+        role: "admin",
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to create admin session.",
+    });
+  }
 });
 
-// Admin Logout endpoint
-router.post("/logout", (req: Request, res: Response) => {
+router.post("/logout", (_req: Request, res: Response) => {
   return res.status(200).json({ success: true, message: "Logged out successfully" });
 });
 
-// Get current admin details
-router.get("/me", (req: Request, res: Response) => {
+router.get("/me", verifyAdmin, (req: AdminRequest, res: Response) => {
   return res.status(200).json({
     success: true,
     user: {
-      email: "admin@ink2wealth.com",
-      name: "Ink2Wealth Admin",
-      role: "admin",
-    },
-  });
-});
-
-// Get profile details
-router.get("/profile", (req: Request, res: Response) => {
-  return res.status(200).json({
-    success: true,
-    user: {
-      email: "admin@ink2wealth.com",
-      name: "Ink2Wealth Admin",
+      email: req.admin?.email,
+      name: req.admin?.name || process.env.ADMIN_NAME || "Ink2Wealth Admin",
       role: "admin",
     },
   });
