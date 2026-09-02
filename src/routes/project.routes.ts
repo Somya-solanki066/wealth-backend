@@ -285,7 +285,7 @@ router.put("/:id/chapters/:chapterId", verifyFirebaseToken, async (req: Authenti
         totalWordsWritten = uData.totalWordsWritten || 0;
 
         if (wordDifference > 0) {
-          totalWordsWritten += wordDifference;
+        totalWordsWritten += wordDifference;
         }
 
         if (!lastWriteDate) {
