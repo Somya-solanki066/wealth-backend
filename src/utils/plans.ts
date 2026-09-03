@@ -427,7 +427,7 @@ export function normalizePlan(raw: any, index = 0): BillingPlan {
     revenueCatId: String(raw?.revenueCatId || ""),
     unlimitedAnalyzer: raw?.unlimitedAnalyzer === true || (!isFree && raw?.unlimitedAnalyzer !== false),
     unlimitedSmartEdit: raw?.unlimitedSmartEdit === true || (!isFree && raw?.unlimitedSmartEdit !== false),
-    ghostWriter: raw?.ghostWriter === true,
+    ghostWriter: isFree ? false : raw?.ghostWriter !== false,
     wealthEngine: raw?.wealthEngine === true,
     features,
   };

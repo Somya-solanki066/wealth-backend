@@ -1,12 +1,33 @@
 import { getFirestore } from "firebase-admin/firestore";
 
-export type AiUsageField = "aiAnalyzerCount" | "smartEditCount";
+export type AiUsageField =
+  | "aiAnalyzerCount"
+  | "smartEditCount"
+  | "ghostWriterCount"
+  | "studentHubCount"
+  | "wealthEngineCount";
 
 export type AiUsageLogInput = {
   userId: string;
   userEmail?: string | null;
   field: AiUsageField;
-  tool: "chapter-analyzer" | "smart-edit";
+  tool:
+    | "chapter-analyzer"
+    | "smart-edit"
+    | "ghost-writer"
+    | "study-planner"
+    | "flashcards"
+    | "citation"
+    | "video-finder"
+    | "essay-writer"
+    | "book-blurb"
+    | "author-bio"
+    | "press-release"
+    | "pitch-deck"
+    | "booktok-hook"
+    | "medium-outline"
+    | "query-letter"
+    | "social-kit";
   wordsAnalyzed?: number;
   tokensUsed?: number;
   promptTokens?: number;

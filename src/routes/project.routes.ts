@@ -229,8 +229,8 @@ router.put("/:id/chapters/:chapterId", verifyFirebaseToken, async (req: Authenti
       return res.status(401).json({ error: "User payload missing" });
     }
     const { content, title, localDateStr } = req.body;
-    if (content === undefined) {
-      return res.status(400).json({ error: "Content body is required" });
+    if (content === undefined && !title) {
+      return res.status(400).json({ error: "Content or title is required" });
     }
 
     const db = getFirestore();
@@ -246,6 +246,24 @@ router.put("/:id/chapters/:chapterId", verifyFirebaseToken, async (req: Authenti
 
     if (!chapSnap.exists) {
       return res.status(404).json({ error: "Chapter not found" });
+    }
+
+    // Title-only rename
+    if (content === undefined && title) {
+      const nextTitle = String(title).trim();
+      if (!nextTitle) {
+        return res.status(400).json({ error: "Title cannot be empty" });
+      }
+      await chapterRef.update({
+        title: nextTitle,
+        lastSavedAt: new Date().toISOString(),
+      });
+      await projectRef.update({ updatedAt: new Date().toISOString() });
+      return res.status(200).json({
+        message: "Chapter renamed successfully",
+        title: nextTitle,
+        chapterWordCount: chapSnap.data()?.wordCount || 0,
+      });
     }
 
     const oldChapWords = chapSnap.data()?.wordCount || 0;
@@ -340,9 +358,51 @@ router.put("/:id/chapters/:chapterId", verifyFirebaseToken, async (req: Authenti
       lastWriteDate,
       totalWordsWritten,
       wordsAdded: wordDifference,
+      title: updateData.title || chapSnap.data()?.title || null,
     });
   } catch (error: any) {
     console.error("Error autosaving chapter:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/projects/:id/chapters/:chapterId - Delete a single chapter/scene
+router.delete("/:id/chapters/:chapterId", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "User payload missing" });
+    }
+
+    const db = getFirestore();
+    const projectRef = db.collection("projects").doc(req.params.id as string);
+    const projSnap = await projectRef.get();
+
+    if (!projSnap.exists || projSnap.data()?.userId !== req.user.uid) {
+      return res.status(404).json({ error: "Project not found or unauthorized" });
+    }
+
+    const chapterRef = projectRef.collection("chapters").doc(req.params.chapterId as string);
+    const chapSnap = await chapterRef.get();
+    if (!chapSnap.exists) {
+      return res.status(404).json({ error: "Chapter not found" });
+    }
+
+    const chapWords = Number(chapSnap.data()?.wordCount || 0);
+    await chapterRef.delete();
+
+    const project = projSnap.data() || {};
+    await projectRef.update({
+      chapterCount: Math.max(0, Number(project.chapterCount || 1) - 1),
+      wordCount: Math.max(0, Number(project.wordCount || 0) - chapWords),
+      updatedAt: new Date().toISOString(),
+    });
+
+    return res.status(200).json({
+      message: "Chapter deleted successfully",
+      chapterId: req.params.chapterId,
+    });
+  } catch (error: any) {
+    console.error("Error deleting chapter:", error);
     return res.status(500).json({ error: error.message });
   }
 });

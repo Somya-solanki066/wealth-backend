@@ -831,4 +831,183 @@ router.get("/ai-usage", async (req: Request, res: Response) => {
   }
 });
 
+function mapWealthJob(id: string, data: Record<string, any> = {}) {
+  return {
+    id,
+    posterId: data.posterId || "",
+    posterName: data.posterName || "Poster",
+    title: data.title || "",
+    category: data.category || "",
+    description: data.description || "",
+    budget: data.budget ?? null,
+    budgetDisplay: data.budgetDisplay || "",
+    budgetType: data.budgetType || "fixed",
+    deadline: data.deadline || null,
+    jobType: data.jobType || "contract",
+    locationType: data.locationType || "remote",
+    urgent: Boolean(data.urgent),
+    status: data.status || "pending_review",
+    rejectReason: data.rejectReason || null,
+    applicationCount: data.applicationCount || 0,
+    createdAt: data.createdAt || null,
+    updatedAt: data.updatedAt || null,
+  };
+}
+
+/** GET /api/data/wealth-jobs */
+router.get("/wealth-jobs", async (req: Request, res: Response) => {
+  try {
+    const status = String(req.query.status || "").trim();
+    const db = getFirestore();
+    let snap;
+    if (status) {
+      snap = await db.collection("jobs").where("status", "==", status).get();
+    } else {
+      snap = await db.collection("jobs").get();
+    }
+    const jobs = snap.docs
+      .map((d) => mapWealthJob(d.id, d.data()))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    return res.json({ success: true, data: jobs, total: jobs.length });
+  } catch (error: any) {
+    console.error("Admin wealth-jobs list error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/data/wealth-jobs/:id/approve */
+router.post("/wealth-jobs/:id/approve", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const ref = db.collection("jobs").doc(String(req.params.id));
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: "Job not found." });
+    const now = new Date().toISOString();
+    await ref.update({
+      status: "active",
+      rejectReason: null,
+      updatedAt: now,
+      approvedAt: now,
+    });
+    const next = await ref.get();
+    return res.json({ success: true, data: mapWealthJob(next.id, next.data()!) });
+  } catch (error: any) {
+    console.error("Approve job error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/data/wealth-jobs/:id/reject */
+router.post("/wealth-jobs/:id/reject", async (req: Request, res: Response) => {
+  try {
+    const reason = String(req.body?.reason || "Does not meet marketplace guidelines.").trim();
+    const db = getFirestore();
+    const ref = db.collection("jobs").doc(String(req.params.id));
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: "Job not found." });
+    const now = new Date().toISOString();
+    await ref.update({
+      status: "rejected",
+      rejectReason: reason,
+      updatedAt: now,
+      rejectedAt: now,
+    });
+    const next = await ref.get();
+    return res.json({ success: true, data: mapWealthJob(next.id, next.data()!) });
+  } catch (error: any) {
+    console.error("Reject job error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+function mapOpenCall(id: string, data: Record<string, any>) {
+  return {
+    id,
+    posterId: data.posterId || "",
+    posterName: data.posterName || "Poster",
+    title: data.title || "",
+    organization: data.organization || "",
+    callType: data.callType || "",
+    genre: data.genre || "",
+    targetMarket: data.targetMarket || "",
+    description: data.description || "",
+    requirements: data.requirements || "",
+    deadline: data.deadline || null,
+    prize: data.prize || "",
+    fee: data.fee || "",
+    locationType: data.locationType || "remote",
+    status: data.status || "pending_review",
+    rejectReason: data.rejectReason || null,
+    pitchCount: data.pitchCount || 0,
+    createdAt: data.createdAt || null,
+    updatedAt: data.updatedAt || null,
+  };
+}
+
+/** GET /api/data/wealth-open-calls */
+router.get("/wealth-open-calls", async (req: Request, res: Response) => {
+  try {
+    const status = String(req.query.status || "").trim();
+    const db = getFirestore();
+    let snap;
+    if (status) {
+      snap = await db.collection("openCalls").where("status", "==", status).get();
+    } else {
+      snap = await db.collection("openCalls").get();
+    }
+    const calls = snap.docs
+      .map((d) => mapOpenCall(d.id, d.data()))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    return res.json({ success: true, data: calls, total: calls.length });
+  } catch (error: any) {
+    console.error("Admin wealth-open-calls list error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/data/wealth-open-calls/:id/approve */
+router.post("/wealth-open-calls/:id/approve", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const ref = db.collection("openCalls").doc(String(req.params.id));
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: "Open call not found." });
+    const now = new Date().toISOString();
+    await ref.update({
+      status: "active",
+      rejectReason: null,
+      updatedAt: now,
+      approvedAt: now,
+    });
+    const next = await ref.get();
+    return res.json({ success: true, data: mapOpenCall(next.id, next.data()!) });
+  } catch (error: any) {
+    console.error("Approve open call error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/data/wealth-open-calls/:id/reject */
+router.post("/wealth-open-calls/:id/reject", async (req: Request, res: Response) => {
+  try {
+    const reason = String(req.body?.reason || "Does not meet marketplace guidelines.").trim();
+    const db = getFirestore();
+    const ref = db.collection("openCalls").doc(String(req.params.id));
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: "Open call not found." });
+    const now = new Date().toISOString();
+    await ref.update({
+      status: "rejected",
+      rejectReason: reason,
+      updatedAt: now,
+      rejectedAt: now,
+    });
+    const next = await ref.get();
+    return res.json({ success: true, data: mapOpenCall(next.id, next.data()!) });
+  } catch (error: any) {
+    console.error("Reject open call error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

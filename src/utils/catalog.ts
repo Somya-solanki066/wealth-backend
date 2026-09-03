@@ -26,7 +26,9 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   genres: [
     "Romance",
     "Werewolf",
+    "Vampire",
     "Billionaire",
+    "Urban Fiction",
     "Fantasy",
     "Urban",
     "Thriller",
@@ -47,11 +49,18 @@ function normalizeItems(raw: any[], fallback: CatalogItem[]): CatalogItem[] {
     .filter(Boolean) as CatalogItem[];
 }
 
+function mergeCatalogItems(raw: any[], fallback: CatalogItem[]): CatalogItem[] {
+  const normalized = normalizeItems(raw, fallback);
+  const seen = new Set(normalized.map((item) => item.id.toLowerCase()));
+  const extras = fallback.filter((item) => !seen.has(item.id.toLowerCase()));
+  return [...normalized, ...extras];
+}
+
 export function normalizeAiConfig(raw: any): AiConfig {
   return {
     openaiModel: String(raw?.openaiModel || DEFAULT_AI_CONFIG.openaiModel),
     platforms: normalizeItems(raw?.platforms, DEFAULT_AI_CONFIG.platforms),
-    genres: normalizeItems(raw?.genres, DEFAULT_AI_CONFIG.genres),
+    genres: mergeCatalogItems(raw?.genres, DEFAULT_AI_CONFIG.genres),
   };
 }
 
