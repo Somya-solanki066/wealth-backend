@@ -94,7 +94,10 @@ async function buildProjectContext(userId: string, projectId?: string | null): P
 
   const chaptersSnap = await projectRef.collection("chapters").get();
   const chapters = chaptersSnap.docs
-    .map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }))
+    .map((d) => {
+      const data = d.data() as { title?: string; content?: string; wordCount?: number };
+      return { id: d.id, title: data.title, content: data.content, wordCount: data.wordCount };
+    })
     .sort((a, b) =>
       String(a.title || "").localeCompare(String(b.title || ""), undefined, { numeric: true })
     );
@@ -480,7 +483,10 @@ router.post(
         const chaptersSnap = await projectRef.collection("chapters").get();
         const targetNorm = normalizeTitle(chapterTitle);
         const matches = chaptersSnap.docs
-          .map((doc) => ({ id: doc.id, ...(doc.data() as Record<string, unknown>) }))
+          .map((doc) => {
+            const data = doc.data() as { title?: string; wordCount?: number };
+            return { id: doc.id, title: data.title, wordCount: data.wordCount };
+          })
           .filter((ch) => normalizeTitle(String(ch.title || "")) === targetNorm)
           .sort((a, b) => Number(b.wordCount || 0) - Number(a.wordCount || 0));
         if (matches[0]) {
