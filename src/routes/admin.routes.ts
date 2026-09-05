@@ -1010,4 +1010,49 @@ router.post("/wealth-open-calls/:id/reject", async (req: Request, res: Response)
   }
 });
 
+router.get("/course-enrollments", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const courseId = String(req.query.courseId || "").trim();
+    const status = String(req.query.status || "").trim();
+
+    const snap = await db.collection("courseEnrollments").get();
+    let enrollments = snap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        enrollmentId: d.enrollmentId || null,
+        userId: d.userId || null,
+        userEmail: d.userEmail || null,
+        userName: d.userName || null,
+        courseId: d.courseId || null,
+        courseName: d.courseName || null,
+        amountPaid: d.amountPaid || 0,
+        currency: (d.currency || "ngn").toUpperCase(),
+        status: d.status || "pending",
+        validFrom: toIso(d.validFrom) || toIso(d.createdAt),
+        validUntil: toIso(d.validUntil),
+        accessType: d.accessType || (d.validUntil ? "limited" : "lifetime"),
+        stripeSessionId: d.stripeSessionId || null,
+        paymentProvider: d.paymentProvider || "stripe",
+        createdAt: toIso(d.createdAt),
+        confirmedAt: toIso(d.confirmedAt),
+      };
+    });
+
+    if (courseId) {
+      enrollments = enrollments.filter((e) => e.courseId === courseId);
+    }
+    if (status) {
+      enrollments = enrollments.filter((e) => e.status === status);
+    }
+
+    enrollments.sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+
+    return res.status(200).json({ success: true, data: enrollments, total: enrollments.length });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

@@ -5,6 +5,8 @@ import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getUploadsDir } from "../utils/paths";
 import { getPlanById, isFreePlan, subscriptionFieldsForPlan } from "../utils/plans";
+import { getCourseProduct } from "../data/courseProducts";
+import { getCourseFeatures } from "../data/courseFeatures";
 
 const router = Router();
 
@@ -356,6 +358,202 @@ router.put("/onboarding", verifyFirebaseToken, async (req: AuthenticatedRequest,
   } catch (err: any) {
     console.error("Error in PUT /user/onboarding:", err);
     return res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/user/transactions — course enrollments + subscription payments */
+router.get("/transactions", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
+    const db = getFirestore();
+    const userId = req.user.uid;
+
+    const [enrollSnap, paySnap, userSnap] = await Promise.all([
+      db.collection("courseEnrollments").where("userId", "==", userId).get(),
+      db.collection("payments").where("userId", "==", userId).get(),
+      db.collection("users").doc(userId).get(),
+    ]);
+
+    const courseTransactions = enrollSnap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        type: "course" as const,
+        enrollmentId: d.enrollmentId || null,
+        title: d.courseName || "Course",
+        courseId: d.courseId || null,
+        amountPaid: d.amountPaid || 0,
+        currency: (d.currency || "ngn").toUpperCase(),
+        status: d.status || "paid",
+        validFrom: d.validFrom || d.createdAt || null,
+        validUntil: d.validUntil || null,
+        accessType: d.accessType || (d.validUntil ? "limited" : "lifetime"),
+        createdAt: d.createdAt || d.confirmedAt || null,
+        paymentProvider: d.paymentProvider || "stripe",
+      };
+    });
+
+    const subscriptionTransactions = paySnap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        type: "subscription" as const,
+        enrollmentId: null,
+        title: d.planId ? `App Plan — ${String(d.planId).replace(/-/g, " ")}` : "App Subscription",
+        courseId: null,
+        amountPaid: d.amountTotal ? Math.round(Number(d.amountTotal) / 100) : 0,
+        currency: (d.currency || "ngn").toUpperCase(),
+        status: d.status || "paid",
+        validFrom: d.createdAt || null,
+        validUntil: userSnap.data()?.subscriptionExpiry || null,
+        accessType: "limited" as const,
+        createdAt: d.createdAt || null,
+        paymentProvider: "stripe",
+      };
+    });
+
+    const transactions = [...courseTransactions, ...subscriptionTransactions].sort((a, b) =>
+      String(b.createdAt || "").localeCompare(String(a.createdAt || ""))
+    );
+
+    return res.json({ transactions, total: transactions.length });
+  } catch (err: any) {
+    console.error("Error in GET /user/transactions:", err);
+    return res.status(500).json({ error: err.message || "Failed to load transactions." });
+  }
+});
+
+function computeIsActive(params: {
+  status: string;
+  accessType: string;
+  validUntil: string | null;
+}): boolean {
+  if (params.status !== "paid") return false;
+  if (params.accessType === "lifetime" || !params.validUntil) return true;
+  const expiry = new Date(params.validUntil);
+  return !Number.isNaN(expiry.getTime()) && expiry.getTime() > Date.now();
+}
+
+function daysRemaining(validUntil: string | null): number | null {
+  if (!validUntil) return null;
+  const expiry = new Date(validUntil);
+  if (Number.isNaN(expiry.getTime())) return null;
+  const diff = expiry.getTime() - Date.now();
+  if (diff <= 0) return 0;
+  return Math.ceil(diff / 86400000);
+}
+
+/** GET /api/user/transactions/:type/:id — full transaction detail */
+router.get("/transactions/:type/:id", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
+    const txType = String(req.params.type || "");
+    const txId = String(req.params.id || "");
+    const userId = req.user.uid;
+    const db = getFirestore();
+
+    if (txType === "course") {
+      const doc = await db.collection("courseEnrollments").doc(txId).get();
+      if (!doc.exists) return res.status(404).json({ error: "Transaction not found." });
+
+      const d = doc.data()!;
+      if (d.userId !== userId) return res.status(403).json({ error: "Access denied." });
+
+      const courseId = String(d.courseId || "");
+      const product = getCourseProduct(courseId);
+      const accessType = d.accessType || (d.validUntil ? "limited" : "lifetime");
+      const validFrom = d.validFrom || d.createdAt || null;
+      const validUntil = d.validUntil || null;
+
+      return res.json({
+        transaction: {
+          id: doc.id,
+          type: "course",
+          title: d.courseName || product?.name || "Course",
+          description: product?.description || null,
+          enrollmentId: d.enrollmentId || null,
+          courseId: courseId || null,
+          planId: null,
+          planName: null,
+          amountPaid: d.amountPaid || 0,
+          amountPaidKobo: d.amountPaidKobo || null,
+          currency: (d.currency || "ngn").toUpperCase(),
+          status: d.status || "paid",
+          validFrom,
+          validUntil,
+          accessType,
+          createdAt: d.createdAt || d.confirmedAt || null,
+          confirmedAt: d.confirmedAt || null,
+          paymentProvider: d.paymentProvider || "stripe",
+          stripeSessionId: d.stripeSessionId || null,
+          source: d.source || null,
+          userEmail: d.userEmail || null,
+          isActive: computeIsActive({ status: d.status || "paid", accessType, validUntil }),
+          daysRemaining: accessType === "lifetime" ? null : daysRemaining(validUntil),
+          features: getCourseFeatures(courseId),
+        },
+      });
+    }
+
+    if (txType === "subscription") {
+      const doc = await db.collection("payments").doc(txId).get();
+      if (!doc.exists) return res.status(404).json({ error: "Transaction not found." });
+
+      const d = doc.data()!;
+      if (d.userId !== userId) return res.status(403).json({ error: "Access denied." });
+
+      const planId = String(d.planId || "");
+      const plan = planId ? await getPlanById(planId) : null;
+      const validFrom = d.createdAt || null;
+      let validUntil: string | null = null;
+      if (plan && !plan.isFree && plan.durationDays > 0 && validFrom) {
+        const start = new Date(validFrom);
+        if (!Number.isNaN(start.getTime())) {
+          validUntil = new Date(start.getTime() + plan.durationDays * 86400000).toISOString();
+        }
+      }
+
+      const userSnap = await db.collection("users").doc(userId).get();
+      const currentExpiry = userSnap.data()?.subscriptionExpiry || null;
+
+      return res.json({
+        transaction: {
+          id: doc.id,
+          type: "subscription",
+          title: plan ? `App Plan — ${plan.name}` : d.planId ? `App Plan — ${planId.replace(/-/g, " ")}` : "App Subscription",
+          description: plan ? `${plan.period} · ${plan.world} world access` : null,
+          enrollmentId: null,
+          courseId: null,
+          planId: planId || null,
+          planName: plan?.name || null,
+          amountPaid: d.amountTotal ? Math.round(Number(d.amountTotal) / 100) : 0,
+          amountPaidKobo: d.amountTotal || null,
+          currency: (d.currency || "ngn").toUpperCase(),
+          status: d.status || "paid",
+          validFrom,
+          validUntil,
+          accessType: "limited",
+          createdAt: d.createdAt || null,
+          confirmedAt: d.createdAt || null,
+          paymentProvider: "stripe",
+          stripeSessionId: doc.id,
+          source: d.source || null,
+          userEmail: d.email || null,
+          subscriptionWorld: plan?.world || userSnap.data()?.subscriptionWorld || null,
+          currentSubscriptionExpiry: currentExpiry,
+          isActive: computeIsActive({ status: d.status || "paid", accessType: "limited", validUntil }),
+          daysRemaining: daysRemaining(validUntil),
+          features: plan?.features || [],
+        },
+      });
+    }
+
+    return res.status(400).json({ error: "Invalid transaction type." });
+  } catch (err: any) {
+    console.error("Error in GET /user/transactions/:type/:id:", err);
+    return res.status(500).json({ error: err.message || "Failed to load transaction." });
   }
 });
 

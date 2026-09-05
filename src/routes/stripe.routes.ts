@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getPlanById, isFreePlan, subscriptionFieldsForPlan, toStripeUnitAmount } from "../utils/plans";
+import { handleCourseCheckoutWebhook } from "./courseEnrollment.routes";
 
 const router = express.Router();
 
@@ -152,6 +153,19 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
+
+    if (session.metadata?.type === "course") {
+      try {
+        const enrollment = await handleCourseCheckoutWebhook(session);
+        if (enrollment) {
+          console.log(`Course enrollment ${enrollment.enrollmentId} for user ${enrollment.userId}`);
+        }
+      } catch (error) {
+        console.error("Error fulfilling course enrollment:", error);
+      }
+      return res.send();
+    }
+
     const userId = session.client_reference_id;
     const planId = session.metadata?.planId;
 
