@@ -12,6 +12,16 @@ import {
 } from "../utils/catalog";
 import { DEFAULT_ANALYZER_PROMPTS } from "../utils/analyzerPrompts";
 import { DEFAULT_SMART_EDIT_PROMPT } from "../utils/smartEditPrompt";
+import {
+  DEFAULT_SCRIPT_ANALYZER_PROMPTS,
+  getScriptAnalyzerPrompt,
+  listScriptAnalyzerIndustries,
+  isValidScriptIndustry,
+  type ScriptAnalysisMode,
+  type ScriptFormat,
+  type ScriptIndustry,
+} from "../data/scriptAnalyzerPrompts";
+import { analyzeScript } from "../services/scriptAnalyzer.service";
 
 const router = Router();
 
@@ -518,6 +528,84 @@ router.put("/analyzer-prompts/:platform", async (req: Request, res: Response) =>
   }
 });
 
+router.get("/script-analyzer-prompts/:industry", async (req: Request, res: Response) => {
+  try {
+    const industry = String(req.params.industry);
+    if (!isValidScriptIndustry(industry)) {
+      return res.status(400).json({ error: "Invalid industry" });
+    }
+    const prompt = await getScriptAnalyzerPrompt(industry);
+    const industries = await listScriptAnalyzerIndustries();
+    return res.status(200).json({
+      success: true,
+      data: {
+        industry,
+        prompt,
+        industries,
+        isDefault: prompt === DEFAULT_SCRIPT_ANALYZER_PROMPTS[industry as ScriptIndustry],
+      },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/script-analyzer-prompts/:industry", async (req: Request, res: Response) => {
+  try {
+    const industry = String(req.params.industry);
+    if (!isValidScriptIndustry(industry)) {
+      return res.status(400).json({ error: "Invalid industry" });
+    }
+    const prompt = String(req.body?.prompt || "").trim();
+    if (!prompt) {
+      return res.status(400).json({ error: "Prompt is required" });
+    }
+    const db = getFirestore();
+    await db.collection("script_analyzer_prompts").doc(industry).set({
+      prompt,
+      updatedAt: new Date().toISOString(),
+    });
+    return res.status(200).json({ success: true, data: { industry, prompt } });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/script-analyze", async (req: Request, res: Response) => {
+  try {
+    const industry = String(req.body?.industry || "hollywood").trim() as ScriptIndustry;
+    const format = String(req.body?.format || "feature").trim() as ScriptFormat;
+    const analysisMode = String(req.body?.analysisMode || "full_script").trim() as ScriptAnalysisMode;
+    const scriptText = String(req.body?.scriptText || "").trim();
+
+    if (!isValidScriptIndustry(industry)) {
+      return res.status(400).json({ error: "Invalid industry" });
+    }
+    if (!scriptText) {
+      return res.status(400).json({ error: "Script text is required" });
+    }
+
+    const { result, analysisId, tokensUsed, model } = await analyzeScript({
+      userId: "admin-test",
+      industry,
+      format,
+      analysisMode,
+      scriptText,
+      saveToFirestore: false,
+    });
+
+    return res.status(200).json({
+      success: true,
+      analysisId,
+      tokensUsed,
+      model,
+      ...result,
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.get("/payments", async (_req: Request, res: Response) => {
   try {
     const db = getFirestore();
@@ -537,7 +625,7 @@ router.get("/payments", async (_req: Request, res: Response) => {
 router.get("/feedback", async (req: Request, res: Response) => {
   try {
     const tool = String(req.query.tool || "").trim();
-    const validTools = ["chapter-analyzer", "smart-edit"];
+    const validTools = ["chapter-analyzer", "smart-edit", "script-analyzer"];
     const db = getFirestore();
 
     const snapshot = await db.collection("ai_tool_feedback").get();
@@ -772,7 +860,11 @@ router.get("/ai-usage", async (req: Request, res: Response) => {
           userName: user.displayName || user.name || "N/A",
           aiAnalyzerCount: Number(data.aiAnalyzerCount || 0),
           smartEditCount: Number(data.smartEditCount || 0),
-          totalCalls: Number(data.aiAnalyzerCount || 0) + Number(data.smartEditCount || 0),
+          scriptAnalyzerCount: Number(data.scriptAnalyzerCount || 0),
+          totalCalls:
+            Number(data.aiAnalyzerCount || 0) +
+            Number(data.smartEditCount || 0) +
+            Number(data.scriptAnalyzerCount || 0),
           totalTokensUsed: Number(data.totalTokensUsed || 0),
           totalWordsAnalyzed: Number(data.totalWordsAnalyzed || 0),
           lastTool: data.lastTool || null,
@@ -811,7 +903,7 @@ router.get("/ai-usage", async (req: Request, res: Response) => {
       })
       .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
 
-    if (tool === "chapter-analyzer" || tool === "smart-edit") {
+    if (tool === "chapter-analyzer" || tool === "smart-edit" || tool === "script-analyzer") {
       logs = logs.filter((item) => item.tool === tool);
     }
 
@@ -819,6 +911,7 @@ router.get("/ai-usage", async (req: Request, res: Response) => {
       totalUsers: users.length,
       analyzerCalls: users.reduce((sum, u) => sum + u.aiAnalyzerCount, 0),
       smartEditCalls: users.reduce((sum, u) => sum + u.smartEditCount, 0),
+      scriptAnalyzerCalls: users.reduce((sum, u) => sum + u.scriptAnalyzerCount, 0),
       totalTokens: users.reduce((sum, u) => sum + u.totalTokensUsed, 0),
       totalWords: users.reduce((sum, u) => sum + u.totalWordsAnalyzed, 0),
       loggedCalls: logs.length,

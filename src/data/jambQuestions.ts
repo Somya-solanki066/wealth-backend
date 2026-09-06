@@ -18,6 +18,7 @@ export type JambQuestion = {
   correctAnswer: JambOptionKey;
   topic: string;
   examYear: number;
+  explanation?: string;
 };
 
 export const JAMB_SUBJECTS: {
@@ -233,7 +234,68 @@ export function getJambSubjectMeta(subject: JambSubjectId) {
 }
 
 export function stripAnswer(qn: JambQuestion) {
-  const { correctAnswer, ...rest } = qn;
+  const { correctAnswer, explanation, ...rest } = qn;
   void correctAnswer;
+  void explanation;
   return rest;
+}
+
+export function getExplanation(qn: JambQuestion): string {
+  if (qn.explanation) return qn.explanation;
+  const correctText = qn.options[qn.correctAnswer];
+  return `The correct answer is ${qn.correctAnswer} (${correctText}). This question tests ${qn.topic} in ${qn.subject}.`;
+}
+
+export function getTopicsForSubject(subject: JambSubjectId): string[] {
+  const topics = new Set<string>();
+  getJambQuestions(subject).forEach((q) => topics.add(q.topic));
+  return [...topics].sort();
+}
+
+export function selectJambQuestions(filters: {
+  subjects: JambSubjectId[];
+  topic?: string;
+  year?: number;
+  count: number;
+  perSubject?: number;
+}): JambQuestion[] {
+  const { subjects, topic, year, count, perSubject } = filters;
+  let pool: JambQuestion[] = [];
+
+  for (const subject of subjects) {
+    let subjectPool = getJambQuestions(subject);
+    if (topic && topic !== "all") {
+      subjectPool = subjectPool.filter((q) => q.topic === topic);
+    }
+    if (year) {
+      subjectPool = subjectPool.filter((q) => q.examYear === year);
+    }
+    if (perSubject) {
+      subjectPool = shuffle(subjectPool).slice(0, perSubject);
+    }
+    pool = pool.concat(subjectPool);
+  }
+
+  pool = shuffle(pool);
+  if (pool.length <= count) return pool.slice(0, count);
+
+  const selected: JambQuestion[] = [];
+  const usedIds = new Set<string>();
+  for (const q of pool) {
+    if (selected.length >= count) break;
+    if (!usedIds.has(q.id)) {
+      selected.push(q);
+      usedIds.add(q.id);
+    }
+  }
+  return selected.map((q, i) => ({ ...q, questionNumber: i + 1 }));
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
 }

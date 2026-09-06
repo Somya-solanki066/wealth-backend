@@ -180,6 +180,7 @@ const SCREENWRITER_PLANS: BillingPlan[] = [
     wealthEngine: false,
     features: [
       { name: "Script Editor — unlimited", included: true },
+      { name: "3 Script Analyzer runs free", included: true },
       { name: "3 Open Calls per day", included: true },
       { name: "Community access", included: true },
       { name: "Public screenwriter profile", included: true },
@@ -208,6 +209,7 @@ const SCREENWRITER_PLANS: BillingPlan[] = [
     ghostWriter: true,
     wealthEngine: true,
     features: [
+      { name: "Unlimited Script Analyzer — all 5 industries", included: true },
       { name: "Unlimited Open Calls access", included: true },
       { name: "Script Marketplace — sell scripts", included: true },
       { name: "Short Film Showcase — pitch films", included: true },

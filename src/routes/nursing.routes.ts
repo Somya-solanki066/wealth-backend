@@ -1,53 +1,142 @@
 import express from "express";
 import { getFirestore } from "firebase-admin/firestore";
 import { AuthenticatedRequest, verifyFirebaseToken } from "../middleware/auth.middleware";
-import { NURSING_YEARS, getNursingTopic, getNursingYear, type NursingTopicId } from "../data/nursingCatalog";
+import { isUserPremium } from "../utils/plans";
+import { NURSING_YEARS } from "../data/nursingCatalog";
+import type { NursingTopicId } from "../data/nursingCatalog";
+import type { NursingOptionKey } from "../data/nursingQuestions";
 import {
-  getNursingQuestions,
-  stripNursingAnswer,
-  type NursingOptionKey,
-} from "../data/nursingQuestions";
+  calculateDrugDose,
+  checkAnswer,
+  getExamAccess,
+  getNursingHome,
+  getNursingProfile,
+  saveNursingProfile,
+  scoreNursingSession,
+  startPracticeSession,
+} from "../services/nursingPractice.service";
 
 const router = express.Router();
 
-function nowIso() {
-  return new Date().toISOString();
+async function getPremium(userId: string) {
+  const snap = await getFirestore().collection("users").doc(userId).get();
+  return isUserPremium(snap.data());
 }
 
-/** GET /api/student/nursing/catalog */
-router.get("/catalog", verifyFirebaseToken, async (_req: AuthenticatedRequest, res) => {
+/** GET /api/student/nursing/home */
+router.get("/home", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
   try {
-    return res.json({ years: NURSING_YEARS });
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const viewYear = req.query.year ? Number(req.query.year) : undefined;
+    const home = await getNursingHome(req.user.uid, viewYear);
+    return res.json(home);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || "Failed to load nursing catalog." });
+    return res.status(500).json({ error: error.message });
   }
 });
 
-/** GET /api/student/nursing/questions/:topicId/:year */
+/** GET /api/student/nursing/profile */
+router.get("/profile", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const profile = await getNursingProfile(req.user.uid);
+    return res.json({ profile, setupRequired: !profile?.setupComplete });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/student/nursing/profile */
+router.post("/profile", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const profile = await saveNursingProfile(req.user.uid, {
+      university: String(req.body?.university || ""),
+      school: String(req.body?.school || ""),
+      year: Number(req.body?.year || 3),
+    });
+    return res.json({ success: true, profile });
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
+  }
+});
+
+/** Legacy catalog */
+router.get("/catalog", verifyFirebaseToken, async (_req: AuthenticatedRequest, res) => {
+  return res.json({ years: NURSING_YEARS });
+});
+
+/** POST /api/student/nursing/start */
+router.post("/start", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const topicId = String(req.body?.topicId || "") as NursingTopicId;
+    const year = Number(req.body?.year || 3);
+    const courseId = String(req.body?.courseId || "");
+    const clinicalTopic = String(req.body?.clinicalTopic || "");
+    const questionType = String(req.body?.questionType || "");
+    const limit = Number(req.body?.limit || 20);
+    const examId = String(req.body?.examId || "");
+
+    if (examId) {
+      const premium = await getPremium(req.user.uid);
+      const access = getExamAccess(examId, premium);
+      if (!access) return res.status(404).json({ error: "Exam not found." });
+      if (access.locked) {
+        return res.status(403).json({ error: "Premium subscription required.", premiumRequired: true });
+      }
+    }
+
+    const session = startPracticeSession({
+      topicId,
+      year,
+      courseId: courseId || undefined,
+      clinicalTopic: clinicalTopic || undefined,
+      questionType: questionType || undefined,
+      limit,
+      examId: examId || undefined,
+    });
+
+    const db = getFirestore();
+    const pendingRef = db.collection("nursingPendingSessions").doc();
+    await pendingRef.set({
+      userId: req.user.uid,
+      topicId,
+      year,
+      courseId: courseId || null,
+      examId: examId || null,
+      type: questionType === "clinical" ? "clinical" : examId ? "exam" : "course",
+      questionIds: session.questionIds,
+      createdAt: new Date().toISOString(),
+    });
+
+    return res.json({ sessionToken: pendingRef.id, ...session });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** Legacy questions route */
 router.get("/questions/:topicId/:year", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
   try {
     const topicId = String(req.params.topicId) as NursingTopicId;
     const year = Number(req.params.year);
-    const topic = getNursingTopic(topicId);
-    const yearData = getNursingYear(year);
-    if (!topic || !yearData) {
-      return res.status(404).json({ error: "Topic or year not found." });
-    }
-    const inYear = yearData.topics.some((t) => t.id === topicId);
-    if (!inYear) {
-      return res.status(400).json({ error: "This topic is not available for the selected year." });
-    }
-
-    const questions = getNursingQuestions(topicId, year).map(stripNursingAnswer);
-    return res.json({
-      topic,
-      year,
-      totalQuestions: questions.length,
-      durationMinutes: 30,
-      questions,
-    });
+    const session = startPracticeSession({ topicId, year });
+    return res.json({ topicId, year, ...session, durationMinutes: 30 });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || "Failed to load questions." });
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/student/nursing/check-answer */
+router.post("/check-answer", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const questionId = String(req.body?.questionId || "");
+    const chosen = String(req.body?.chosen || "") as NursingOptionKey;
+    const result = checkAnswer(questionId, chosen);
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
   }
 });
 
@@ -55,67 +144,55 @@ router.get("/questions/:topicId/:year", verifyFirebaseToken, async (req: Authent
 router.post("/submit", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthorized." });
-    const topicId = String(req.body?.topicId) as NursingTopicId;
-    const year = Number(req.body?.year);
+    const sessionToken = String(req.body?.sessionToken || "");
     const answers = (req.body?.answers || {}) as Record<string, NursingOptionKey | null>;
 
-    const topic = getNursingTopic(topicId);
-    if (!topic) return res.status(404).json({ error: "Topic not found." });
-
-    const bank = getNursingQuestions(topicId, year);
-    let correctCount = 0;
-    let incorrectCount = 0;
-    let skippedCount = 0;
-
-    const breakdown = bank.map((qn) => {
-      const chosen = answers[qn.id] ?? null;
-      if (!chosen) {
-        skippedCount += 1;
-        return {
-          questionId: qn.id,
-          questionNumber: qn.questionNumber,
-          chosen: null,
-          correctAnswer: qn.correctAnswer,
-          isCorrect: false,
-          rationale: qn.rationale,
-        };
+    if (sessionToken) {
+      const db = getFirestore();
+      const pendingRef = db.collection("nursingPendingSessions").doc(sessionToken);
+      const pendingSnap = await pendingRef.get();
+      if (!pendingSnap.exists || pendingSnap.data()?.userId !== req.user.uid) {
+        return res.status(400).json({ error: "Session expired." });
       }
-      const isCorrect = chosen === qn.correctAnswer;
-      if (isCorrect) correctCount += 1;
-      else incorrectCount += 1;
-      return {
-        questionId: qn.id,
-        questionNumber: qn.questionNumber,
-        chosen,
-        correctAnswer: qn.correctAnswer,
-        isCorrect,
-        rationale: qn.rationale,
-      };
-    });
+      const pending = pendingSnap.data()!;
+      const result = await scoreNursingSession(req.user.uid, {
+        topicId: pending.topicId as NursingTopicId,
+        year: pending.year,
+        courseId: pending.courseId || undefined,
+        type: pending.type || "course",
+        examId: pending.examId || undefined,
+        answers,
+        questionIds: pending.questionIds || [],
+      });
+      await pendingRef.delete();
+      return res.json(result);
+    }
 
-    const totalQuestions = bank.length;
-    const percentageScore = totalQuestions ? Math.round((correctCount / totalQuestions) * 100) : 0;
-
-    const db = getFirestore();
-    const ref = db.collection("nursingPracticeSessions").doc();
-    const session = {
-      userId: req.user.uid,
+    const topicId = String(req.body?.topicId || "") as NursingTopicId;
+    const year = Number(req.body?.year);
+    const result = await scoreNursingSession(req.user.uid, {
       topicId,
-      topicName: topic.name,
       year,
-      totalQuestions,
-      correctCount,
-      incorrectCount,
-      skippedCount,
-      percentageScore,
-      status: "completed",
-      createdAt: nowIso(),
-    };
-    await ref.set(session);
-
-    return res.json({ sessionId: ref.id, ...session, breakdown });
+      courseId: req.body?.courseId,
+      type: "course",
+      answers,
+      questionIds: Object.keys(answers),
+    });
+    return res.json(result);
   } catch (error: any) {
-    return res.status(500).json({ error: error.message || "Failed to submit." });
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/student/nursing/drug-calc */
+router.post("/drug-calc", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
+  try {
+    const type = String(req.body?.type || "iv-rate");
+    const params = req.body?.params || {};
+    const result = calculateDrugDose(type, params);
+    return res.json(result);
+  } catch (error: any) {
+    return res.status(400).json({ error: error.message });
   }
 });
 

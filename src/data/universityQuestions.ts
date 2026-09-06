@@ -9,6 +9,8 @@ export type UniversityPastQuestion = {
   options: Record<PastOptionKey, string>;
   correctAnswer: PastOptionKey;
   topic: string;
+  explanation?: string;
+  difficulty?: string;
 };
 
 function hashSeed(input: string) {
@@ -27,7 +29,8 @@ function q(
   text: string,
   options: Record<PastOptionKey, string>,
   correct: PastOptionKey,
-  topic: string
+  topic: string,
+  explanation?: string
 ): UniversityPastQuestion {
   return {
     id: `${courseId}-${year}-q${n}`,
@@ -38,11 +41,18 @@ function q(
     options,
     correctAnswer: correct,
     topic,
+    explanation,
+    difficulty: "medium",
   };
 }
 
 /** Fixed past-exam style questions — deterministic per course + year. */
 export function getUniversityPastQuestions(courseId: string, year: number): UniversityPastQuestion[] {
+  const isPhysiology = courseId.includes("physiology");
+  if (isPhysiology) {
+    return buildPhysiologyQuestions(courseId, year);
+  }
+
   const seed = hashSeed(`${courseId}:${year}`);
   const count = 30;
   const questions: UniversityPastQuestion[] = [];
@@ -147,7 +157,124 @@ export function getUniversityPastQuestions(courseId: string, year: number): Univ
 }
 
 export function stripPastAnswer(qn: UniversityPastQuestion) {
-  const { correctAnswer, ...rest } = qn;
+  const { correctAnswer, explanation, ...rest } = qn;
   void correctAnswer;
+  void explanation;
   return rest;
+}
+
+export function getPastExplanation(qn: UniversityPastQuestion): string {
+  if (qn.explanation) return qn.explanation;
+  const correctText = qn.options[qn.correctAnswer];
+  return `The correct answer is ${qn.correctAnswer} (${correctText}). This question covers ${qn.topic}.`;
+}
+
+function buildPhysiologyQuestions(courseId: string, year: number): UniversityPastQuestion[] {
+  const topics = [
+    "Cardiovascular System",
+    "Respiratory System",
+    "Renal Physiology",
+    "Endocrine Physiology",
+    "Neurophysiology",
+  ];
+  const count = 50;
+  const questions: UniversityPastQuestion[] = [
+    q(
+      courseId,
+      year,
+      1,
+      "Which of the following is NOT a function of the mitochondria in a plant cell?",
+      {
+        A: "ATP production",
+        B: "Cellular respiration",
+        C: "Photosynthesis",
+        D: "Heat generation",
+      },
+      "C",
+      "Cell biology",
+      "Photosynthesis occurs in chloroplasts, not mitochondria. Mitochondria are responsible for ATP production via cellular respiration."
+    ),
+    q(
+      courseId,
+      year,
+      2,
+      "The normal resting heart rate in a healthy adult is approximately:",
+      {
+        A: "40–50 bpm",
+        B: "60–100 bpm",
+        C: "110–130 bpm",
+        D: "140–160 bpm",
+      },
+      "B",
+      "Cardiovascular System",
+      "A normal resting heart rate for adults ranges from 60 to 100 beats per minute."
+    ),
+    q(
+      courseId,
+      year,
+      3,
+      "Which hormone is primarily responsible for regulating blood glucose levels?",
+      {
+        A: "Thyroxine",
+        B: "Insulin",
+        C: "Adrenaline",
+        D: "Cortisol",
+      },
+      "B",
+      "Endocrine Physiology",
+      "Insulin, secreted by the pancreas, lowers blood glucose by promoting cellular uptake of glucose."
+    ),
+    q(
+      courseId,
+      year,
+      4,
+      "The functional unit of the kidney is the:",
+      {
+        A: "Glomerulus",
+        B: "Nephron",
+        C: "Loop of Henle",
+        D: "Collecting duct",
+      },
+      "B",
+      "Renal Physiology",
+      "The nephron is the structural and functional unit of the kidney, responsible for filtration and urine formation."
+    ),
+    q(
+      courseId,
+      year,
+      5,
+      "During inspiration, the diaphragm:",
+      {
+        A: "Relaxes and moves upward",
+        B: "Contracts and moves downward",
+        C: "Remains stationary",
+        D: "Contracts and moves upward",
+      },
+      "B",
+      "Respiratory System",
+      "During inspiration, the diaphragm contracts and flattens, moving downward to increase thoracic volume."
+    ),
+  ];
+
+  for (let n = questions.length + 1; n <= count; n += 1) {
+    const topic = topics[(n - 1) % topics.length];
+    questions.push(
+      q(
+        courseId,
+        year,
+        n,
+        `(${year}) Past question ${n}: Which statement about ${topic.toLowerCase()} is MOST accurate?`,
+        {
+          A: "It has no clinical relevance",
+          B: "It involves homeostatic regulation",
+          C: "It only applies to pathology",
+          D: "It cannot be measured",
+        },
+        "B",
+        topic,
+        `${topic}: Homeostatic regulation is a core principle in physiology. Option B correctly identifies this.`
+      )
+    );
+  }
+  return questions;
 }

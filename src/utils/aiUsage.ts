@@ -4,6 +4,7 @@ export type AiUsageField =
   | "aiAnalyzerCount"
   | "smartEditCount"
   | "ghostWriterCount"
+  | "scriptAnalyzerCount"
   | "studentHubCount"
   | "wealthEngineCount";
 
@@ -14,6 +15,7 @@ export type AiUsageLogInput = {
   tool:
     | "chapter-analyzer"
     | "smart-edit"
+    | "script-analyzer"
     | "ghost-writer"
     | "study-planner"
     | "flashcards"
