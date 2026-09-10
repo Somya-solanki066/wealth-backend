@@ -57,6 +57,12 @@ router.post("/profile", verifyFirebaseToken, async (req: AuthenticatedRequest, r
       targetInstitution: String(req.body?.targetInstitution || ""),
       examDate: String(req.body?.examDate || ""),
       subjects: Array.isArray(req.body?.subjects) ? req.body.subjects : undefined,
+      customCourseLabel: req.body?.customCourseLabel
+        ? String(req.body.customCourseLabel)
+        : undefined,
+      customInstitutionLabel: req.body?.customInstitutionLabel
+        ? String(req.body.customInstitutionLabel)
+        : undefined,
     });
     return res.json({ success: true, profile });
   } catch (error: any) {

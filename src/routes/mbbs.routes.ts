@@ -62,6 +62,9 @@ router.post("/profile", verifyFirebaseToken, async (req: AuthenticatedRequest, r
       college: String(req.body?.college || ""),
       year: Number(req.body?.year || 2),
       phase: String(req.body?.phase || "pre-clinical") as MbbsPhaseId,
+      customUniversityLabel: req.body?.customUniversityLabel
+        ? String(req.body.customUniversityLabel)
+        : undefined,
     });
     return res.json({ success: true, profile });
   } catch (error: any) {

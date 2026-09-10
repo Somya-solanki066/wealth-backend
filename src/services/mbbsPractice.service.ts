@@ -70,10 +70,30 @@ export async function getMbbsProfile(userId: string): Promise<MbbsProfile | null
 
 export async function saveMbbsProfile(
   userId: string,
-  input: { university: string; college: string; year: number; phase: MbbsPhaseId }
+  input: {
+    university: string;
+    college: string;
+    year: number;
+    phase: MbbsPhaseId;
+    customUniversityLabel?: string;
+  }
 ): Promise<MbbsProfile> {
+  const OTHER = "__other__";
   const uni = MBBS_UNIVERSITIES.find((u) => u.id === input.university);
-  if (!uni) throw new Error("Invalid university.");
+  let university: string;
+  let universityLabel: string;
+
+  if (uni) {
+    university = uni.id;
+    universityLabel = uni.label;
+  } else if (input.university === OTHER || Boolean(String(input.customUniversityLabel || "").trim())) {
+    universityLabel = String(input.customUniversityLabel || "").trim();
+    if (!universityLabel) throw new Error("Enter your university name.");
+    university = "custom";
+  } else {
+    throw new Error("Invalid university.");
+  }
+
   if (!MBBS_COLLEGES.includes(input.college)) throw new Error("Invalid college.");
   const phase = getMbbsPhase(input.phase);
   if (!phase) throw new Error("Invalid phase.");
@@ -86,8 +106,8 @@ export async function saveMbbsProfile(
   const existing = await ref.get();
   const profile: MbbsProfile = {
     userId,
-    university: uni.id,
-    universityLabel: uni.label,
+    university,
+    universityLabel,
     college: input.college,
     year: input.year,
     phase: input.phase,

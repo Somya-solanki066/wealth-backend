@@ -32,7 +32,17 @@ export type AiUsageLogInput = {
     | "social-kit"
     | "writing-vault"
     | "book-cover"
-    | "pitch-synopsis";
+    | "pitch-synopsis"
+    | "write-something"
+    | "pitch-templates"
+    | "one-shot-formatter"
+    | "micro-serial"
+    | "self-interview-builder"
+    | "outline-builder"
+    | "web3-explainer"
+    | "web3-docs"
+    | "web3-thread"
+    | "web3-community";
   wordsAnalyzed?: number;
   tokensUsed?: number;
   promptTokens?: number;

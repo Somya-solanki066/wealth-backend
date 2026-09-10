@@ -54,6 +54,9 @@ router.post("/profile", verifyFirebaseToken, async (req: AuthenticatedRequest, r
       university: String(req.body?.university || ""),
       school: String(req.body?.school || ""),
       year: Number(req.body?.year || 3),
+      customUniversityLabel: req.body?.customUniversityLabel
+        ? String(req.body.customUniversityLabel)
+        : undefined,
     });
     return res.json({ success: true, profile });
   } catch (error: any) {

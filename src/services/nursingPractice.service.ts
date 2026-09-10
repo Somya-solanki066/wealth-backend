@@ -56,10 +56,24 @@ export async function getNursingProfile(userId: string): Promise<NursingProfile 
 
 export async function saveNursingProfile(
   userId: string,
-  input: { university: string; school: string; year: number }
+  input: { university: string; school: string; year: number; customUniversityLabel?: string }
 ): Promise<NursingProfile> {
+  const OTHER = "__other__";
   const uni = NURSING_UNIVERSITIES.find((u) => u.id === input.university);
-  if (!uni) throw new Error("Invalid university.");
+  let university: string;
+  let universityLabel: string;
+
+  if (uni) {
+    university = uni.id;
+    universityLabel = uni.label;
+  } else if (input.university === OTHER || Boolean(String(input.customUniversityLabel || "").trim())) {
+    universityLabel = String(input.customUniversityLabel || "").trim();
+    if (!universityLabel) throw new Error("Enter your university name.");
+    university = "custom";
+  } else {
+    throw new Error("Invalid university.");
+  }
+
   if (!NURSING_SCHOOLS.includes(input.school)) throw new Error("Invalid school.");
   if (!getNursingYear(input.year)) throw new Error("Invalid year.");
 
@@ -68,8 +82,8 @@ export async function saveNursingProfile(
   const existing = await ref.get();
   const profile: NursingProfile = {
     userId,
-    university: uni.id,
-    universityLabel: uni.label,
+    university,
+    universityLabel,
     school: input.school,
     year: input.year,
     setupComplete: true,

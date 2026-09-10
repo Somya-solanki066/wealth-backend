@@ -109,18 +109,69 @@ export async function saveJambProfile(
     targetInstitution: string;
     examDate: string;
     subjects?: JambSubjectId[];
+    customCourseLabel?: string;
+    customInstitutionLabel?: string;
   }
 ): Promise<JambProfile> {
-  const course = getCourseById(input.targetCourse);
-  const institution = getInstitutionById(input.targetInstitution);
-  if (!course) throw new Error("Invalid target course.");
-  if (!institution) throw new Error("Invalid target institution.");
   if (!input.examDate) throw new Error("Exam date is required.");
 
-  const subjects = (input.subjects?.length ? input.subjects : course.subjects) as JambSubjectId[];
-  const invalid = subjects.find((s) => !course.subjects.includes(s));
-  if (invalid) {
-    throw new Error(`Subject "${invalid}" is not valid for ${course.label}.`);
+  const OTHER = "__other__";
+  const course = getCourseById(input.targetCourse);
+  let targetCourse: string;
+  let targetCourseLabel: string;
+  let subjects: JambSubjectId[];
+
+  if (course) {
+    targetCourse = course.id;
+    targetCourseLabel = course.label;
+    subjects = (input.subjects?.length ? input.subjects : course.subjects) as JambSubjectId[];
+    const invalid = subjects.find((s) => !course.subjects.includes(s));
+    if (invalid) {
+      throw new Error(`Subject "${invalid}" is not valid for ${course.label}.`);
+    }
+  } else if (input.targetCourse === OTHER || Boolean(String(input.customCourseLabel || "").trim())) {
+    targetCourseLabel = String(input.customCourseLabel || "").trim();
+    if (!targetCourseLabel) throw new Error("Enter your target course.");
+    targetCourse = "custom";
+    const allowed = new Set(JAMB_SUBJECTS.map((s) => s.id));
+    subjects = (input.subjects || []).filter((s) => allowed.has(s)) as JambSubjectId[];
+    if (subjects.length < 3 || subjects.length > 4) {
+      throw new Error("Select 3 or 4 UTME subjects for your custom course.");
+    }
+    if (!subjects.includes("english")) {
+      throw new Error("Use of English is required.");
+    }
+  } else {
+    throw new Error("Invalid target course.");
+  }
+
+  const institution = getInstitutionById(input.targetInstitution);
+  let targetInstitution: string;
+  let targetInstitutionLabel: string;
+  let targetInstitutionShort: string;
+
+  if (institution) {
+    targetInstitution = institution.id;
+    targetInstitutionLabel = institution.label;
+    targetInstitutionShort = institution.shortName;
+  } else if (
+    input.targetInstitution === OTHER ||
+    Boolean(String(input.customInstitutionLabel || "").trim())
+  ) {
+    targetInstitutionLabel = String(input.customInstitutionLabel || "").trim();
+    if (!targetInstitutionLabel) throw new Error("Enter your university / institution.");
+    targetInstitution = "custom";
+    const words = targetInstitutionLabel.split(/\s+/).filter(Boolean);
+    targetInstitutionShort =
+      words.length === 1
+        ? words[0].slice(0, 8).toUpperCase()
+        : words
+            .map((w) => w[0])
+            .join("")
+            .slice(0, 8)
+            .toUpperCase();
+  } else {
+    throw new Error("Invalid target institution.");
   }
 
   const db = getFirestore();
@@ -128,11 +179,11 @@ export async function saveJambProfile(
   const existing = await ref.get();
   const profile: JambProfile = {
     userId,
-    targetCourse: course.id,
-    targetCourseLabel: course.label,
-    targetInstitution: institution.id,
-    targetInstitutionLabel: institution.label,
-    targetInstitutionShort: institution.shortName,
+    targetCourse,
+    targetCourseLabel,
+    targetInstitution,
+    targetInstitutionLabel,
+    targetInstitutionShort,
     examDate: input.examDate,
     subjects,
     setupComplete: true,

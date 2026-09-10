@@ -1397,4 +1397,208 @@ router.get("/community-posts", async (req: Request, res: Response) => {
   }
 });
 
+// ——— Rate Calculator (Content & Freelance) ———
+router.get("/rate-calculator-settings", async (_req: Request, res: Response) => {
+  try {
+    const { getRateCalculatorSettings } = await import("../services/rateCalculator.service");
+    const data = await getRateCalculatorSettings();
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/rate-calculator-settings", async (req: Request, res: Response) => {
+  try {
+    const { saveRateCalculatorSettings } = await import("../services/rateCalculator.service");
+    const data = await saveRateCalculatorSettings(req.body || {});
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+// ——— Pitch Templates (Content & Freelance) ———
+router.get("/pitch-templates-settings", async (_req: Request, res: Response) => {
+  try {
+    const { getPitchTemplatesSettings } = await import("../services/pitchTemplates.service");
+    const data = await getPitchTemplatesSettings();
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/pitch-templates-settings", async (req: Request, res: Response) => {
+  try {
+    const { savePitchTemplatesSettings } = await import("../services/pitchTemplates.service");
+    const data = await savePitchTemplatesSettings(req.body || {});
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+// ——— Flash Prompts (Short-Form Fiction) ———
+router.get("/flash-prompts-settings", async (_req: Request, res: Response) => {
+  try {
+    const { getFlashPromptsSettings, GENRE_LABELS, FLASH_GENRES } = await import(
+      "../services/flashPrompts.service"
+    );
+    const data = await getFlashPromptsSettings();
+    return res.json({
+      success: true,
+      data,
+      genres: FLASH_GENRES.map((id) => ({ id, label: GENRE_LABELS[id] })),
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/flash-prompts-settings", async (req: Request, res: Response) => {
+  try {
+    const { saveFlashPromptsSettings } = await import("../services/flashPrompts.service");
+    const data = await saveFlashPromptsSettings(req.body || {});
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+// ——— Portfolio Builder ———
+router.get("/portfolio-settings", async (_req: Request, res: Response) => {
+  try {
+    const { getPortfolioSettings, adminListPortfolios } = await import(
+      "../services/portfolioBuilder.service"
+    );
+    const settings = await getPortfolioSettings();
+    const portfolios = await adminListPortfolios(40);
+    return res.json({ success: true, data: { settings, portfolios } });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/portfolio-settings", async (req: Request, res: Response) => {
+  try {
+    const { savePortfolioSettings } = await import("../services/portfolioBuilder.service");
+    const data = await savePortfolioSettings(req.body || {});
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+router.post("/portfolio/:id/status", async (req: Request, res: Response) => {
+  try {
+    const { adminSetPortfolioStatus } = await import("../services/portfolioBuilder.service");
+    const status = String(req.body?.status || "disabled") as any;
+    const data = await adminSetPortfolioStatus(String(req.params.id), status);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+router.post("/portfolio/:id/verification", async (req: Request, res: Response) => {
+  try {
+    const { adminSetVerification } = await import("../services/portfolioBuilder.service");
+    const status = String(req.body?.status || "unverified") as any;
+    const portfolio = await adminSetVerification(String(req.params.id), status, req.body?.note);
+    return res.json({ success: true, data: { portfolio } });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+// ——— Token-Gated Chapters ———
+router.get("/token-gates", async (_req: Request, res: Response) => {
+  try {
+    const { listAllGatesAdmin, listRegisteredTokens, getTokenGateConfig } = await import(
+      "../services/tokenGate.service"
+    );
+    const [gates, tokens] = await Promise.all([listAllGatesAdmin(), listRegisteredTokens()]);
+    return res.json({
+      success: true,
+      data: { gates, tokens, config: getTokenGateConfig() },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch("/token-gates/:projectId/:chapterId", async (req: Request, res: Response) => {
+  try {
+    const { adminUpdateGate } = await import("../services/tokenGate.service");
+    const gate = await adminUpdateGate(String(req.params.projectId), String(req.params.chapterId), {
+      status: req.body?.status,
+      tokenId: req.body?.tokenId,
+      accessPolicy: req.body?.accessPolicy,
+    });
+    return res.json({ success: true, data: { gate } });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+router.delete("/token-gates/:projectId/:chapterId", async (req: Request, res: Response) => {
+  try {
+    const { removeGate } = await import("../services/tokenGate.service");
+    await removeGate(null, String(req.params.projectId), String(req.params.chapterId), true);
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+// ——— Screenwriter Portfolio verification ———
+router.get("/screenwriter-portfolios", async (_req: Request, res: Response) => {
+  try {
+    const { adminListScreenwriterPortfolios } = await import(
+      "../services/screenwriterPortfolio.service"
+    );
+    const portfolios = await adminListScreenwriterPortfolios();
+    return res.json({ success: true, data: { portfolios } });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/screenwriter-portfolios/:id/verification", async (req: Request, res: Response) => {
+  try {
+    const { adminSetVerification } = await import("../services/screenwriterPortfolio.service");
+    const status = String(req.body?.status || "unverified") as any;
+    const portfolio = await adminSetVerification(String(req.params.id), status, req.body?.note);
+    return res.json({ success: true, data: { portfolio } });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+// ——— Wallet Royalties ———
+router.get("/wallet-royalties/settings", async (_req: Request, res: Response) => {
+  try {
+    const { getRoyaltySettings, getWalletRoyaltiesConfig } = await import(
+      "../services/walletRoyalties.service"
+    );
+    return res.json({
+      success: true,
+      data: { settings: await getRoyaltySettings(), config: getWalletRoyaltiesConfig() },
+    });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/wallet-royalties/settings", async (req: Request, res: Response) => {
+  try {
+    const { saveRoyaltySettings } = await import("../services/walletRoyalties.service");
+    const settings = await saveRoyaltySettings(req.body || {});
+    return res.json({ success: true, data: { settings } });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
 export default router;
