@@ -4,6 +4,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { COURSE_PRODUCTS, getCourseProduct, isValidCourseProductId } from "../data/courseProducts";
 import { fulfillCourseEnrollment } from "../services/courseEnrollment.service";
+import { getPrimaryFrontendUrl } from "../utils/envUrls";
 
 const router = express.Router();
 
@@ -43,7 +44,9 @@ router.post("/checkout", verifyFirebaseToken, async (req: AuthenticatedRequest, 
 
     const product = getCourseProduct(courseId)!;
     const userId = req.user.uid;
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const frontendUrl = getPrimaryFrontendUrl(
+      typeof req.headers.origin === "string" ? req.headers.origin : null
+    );
     const cancelPath =
       typeof req.body?.cancelPath === "string" &&
       req.body.cancelPath.startsWith("/") &&

@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getPlanById, isFreePlan, subscriptionFieldsForPlan, toStripeUnitAmount } from "../utils/plans";
+import { getPrimaryFrontendUrl } from "../utils/envUrls";
 import { handleCourseCheckoutWebhook } from "./courseEnrollment.routes";
 
 const router = express.Router();
@@ -33,7 +34,9 @@ router.post("/create-checkout-session", verifyFirebaseToken, async (req: Authent
       return res.status(400).json({ error: "Plan is missing Stripe price or amount" });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
+    const frontendUrl = getPrimaryFrontendUrl(
+      typeof req.headers.origin === "string" ? req.headers.origin : null
+    );
     const safeCancel =
       typeof cancelPath === "string" && cancelPath.startsWith("/") && !cancelPath.startsWith("//")
         ? cancelPath

@@ -32,6 +32,7 @@ import wealthRoutes from "./routes/wealth.routes";
 import industryRoutes from "./routes/industry.routes";
 import wealthToolsRoutes from "./routes/wealthTools.routes";
 import { getUploadsDir } from "./utils/paths";
+import { getAllowedCorsOrigins } from "./utils/envUrls";
 import { verifyAdmin } from "./middleware/admin.middleware";
 
 // Load environment variables
@@ -101,28 +102,13 @@ function initFirebaseAdmin(): boolean {
 
 const firebaseAdminInitialized = initFirebaseAdmin();
 
-const extraOrigins = (process.env.CORS_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.ADMIN_URL,
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:5174",
-  ...extraOrigins,
-].filter(Boolean) as string[];
+const allowedOrigins = getAllowedCorsOrigins();
 
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (allowedOrigins.includes(origin.replace(/\/+$/, ""))) return callback(null, true);
       if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) return callback(null, true);
       return callback(null, false);
     },
