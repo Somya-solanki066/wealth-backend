@@ -39,6 +39,8 @@ function mapCall(id: string, data: Record<string, any>) {
     deadline: data.deadline || null,
     prize: data.prize || "",
     fee: data.fee || "",
+    budget: data.budget || data.prize || "",
+    location: data.location || "",
     locationType: data.locationType || "remote",
     status: data.status || "pending_review",
     rejectReason: data.rejectReason || null,
@@ -164,6 +166,8 @@ router.post("/industry", async (req: AuthenticatedRequest, res) => {
     const targetMarket = String(body.targetMarket || "").trim();
     const prize = String(body.prize || "").trim();
     const fee = String(body.fee || "").trim();
+    const budget = String(body.budget || body.prize || "").trim();
+    const location = String(body.location || "").trim();
     const locationType = String(body.locationType || "remote").trim();
 
     if (!title) return res.status(400).json({ error: "Title is required." });
@@ -191,8 +195,10 @@ router.post("/industry", async (req: AuthenticatedRequest, res) => {
       description,
       requirements,
       deadline,
-      prize,
+      prize: prize || budget,
       fee,
+      budget,
+      location,
       locationType: ["remote", "onsite", "hybrid"].includes(locationType) ? locationType : "remote",
       status: "pending_review",
       rejectReason: null,
@@ -208,6 +214,102 @@ router.post("/industry", async (req: AuthenticatedRequest, res) => {
   } catch (error: any) {
     console.error("Create open call error:", error);
     return res.status(500).json({ error: error.message || "Failed to post open call." });
+  }
+});
+
+/** POST /api/wealth/industry/seed-demo — create sample active calls if board empty */
+router.post("/industry/seed-demo", async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const db = getFirestore();
+    const existing = await db.collection("openCalls").where("status", "==", "active").limit(1).get();
+    if (!existing.empty) {
+      const all = await db.collection("openCalls").where("status", "==", "active").get();
+      return res.json({
+        seeded: 0,
+        message: "Board already has listings.",
+        calls: all.docs.map((d) => mapCall(d.id, d.data())),
+      });
+    }
+
+    const now = nowIso();
+    const morning = new Date();
+    morning.setHours(7, 0, 0, 0);
+    const samples = [
+      {
+        title: "Feature Drama — Lead Writer Needed",
+        organization: "Kite Films",
+        callType: "commission",
+        genre: "Drama",
+        targetMarket: "Nollywood",
+        description:
+          "Looking for an experienced lead writer for a feature drama set in Lagos. Strong character work and authentic dialogue required. Full treatment and first act sample preferred.",
+        requirements: "Produced credits preferred. 90–110 page feature format.",
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10),
+        prize: "",
+        fee: "",
+        budget: "₦2M–5M",
+        location: "Lagos",
+        locationType: "hybrid",
+        createdAt: morning.toISOString(),
+      },
+      {
+        title: "Thriller Series Bible — Writers Room",
+        organization: "Red Harbour TV",
+        callType: "collaboration",
+        genre: "Thriller",
+        targetMarket: "Netflix Africa",
+        description:
+          "Open call for writers to join a limited series room. Crime thriller with political undertones. Submit a one-page episode pitch plus a 5-page sample scene.",
+        requirements: "TV or feature sample required. Remote-friendly.",
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 21).toISOString().slice(0, 10),
+        prize: "",
+        fee: "",
+        budget: "₦1.5M–3M",
+        location: "Remote",
+        locationType: "remote",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
+      },
+      {
+        title: "Comedy Short — Festival Circuit",
+        organization: "Laugh Track Studios",
+        callType: "short_film",
+        genre: "Comedy",
+        targetMarket: "Festivals",
+        description:
+          "Seeking original comedy short scripts (8–12 pages) for a festival slate. Sharp dialogue, small cast, single-location preferred. Winner gets production slot.",
+        requirements: "Original unproduced short. PDF or Final Draft.",
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 45).toISOString().slice(0, 10),
+        prize: "Production + ₦500k",
+        fee: "",
+        budget: "₦800k–1.2M",
+        location: "Abuja",
+        locationType: "onsite",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 28).toISOString(),
+      },
+    ];
+
+    const batch = db.batch();
+    const created = [];
+    for (const sample of samples) {
+      const ref = db.collection("openCalls").doc();
+      const doc = {
+        posterId: "system-demo",
+        posterName: "Ink2Wealth Industry",
+        ...sample,
+        status: "active",
+        rejectReason: null,
+        pitchCount: 0,
+        updatedAt: now,
+      };
+      batch.set(ref, doc);
+      created.push(mapCall(ref.id, doc));
+    }
+    await batch.commit();
+    return res.json({ seeded: created.length, calls: created, message: `Seeded ${created.length} demo open calls.` });
+  } catch (error: any) {
+    console.error("Seed open calls error:", error);
+    return res.status(500).json({ error: error.message || "Failed to seed demo calls." });
   }
 });
 

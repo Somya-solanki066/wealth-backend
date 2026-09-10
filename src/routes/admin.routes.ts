@@ -1148,4 +1148,253 @@ router.get("/course-enrollments", async (req: Request, res: Response) => {
   }
 });
 
+// ——— Writing Vault ———
+router.get("/writing-vault", async (req: Request, res: Response) => {
+  try {
+    const {
+      adminListPrompts,
+      getVaultMeta,
+    } = await import("../services/writingVault.service");
+    const prompts = await adminListPrompts({
+      category: req.query.category ? String(req.query.category) : undefined,
+      genre: req.query.genre ? String(req.query.genre) : undefined,
+      status: req.query.status ? String(req.query.status) : undefined,
+    });
+    return res.json({ success: true, data: prompts, meta: getVaultMeta() });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/writing-vault", async (req: Request, res: Response) => {
+  try {
+    const { adminUpsertPrompt } = await import("../services/writingVault.service");
+    const adminId = (req as any).admin?.id || (req as any).admin?.email || "admin";
+    const result = await adminUpsertPrompt(req.body || {}, undefined, String(adminId));
+    return res.status(201).json({ success: true, data: result });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.put("/writing-vault/:id", async (req: Request, res: Response) => {
+  try {
+    const { adminUpsertPrompt } = await import("../services/writingVault.service");
+    const adminId = (req as any).admin?.id || (req as any).admin?.email || "admin";
+    const result = await adminUpsertPrompt(req.body || {}, String(req.params.id), String(adminId));
+    return res.json({ success: true, data: result });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.delete("/writing-vault/:id", async (req: Request, res: Response) => {
+  try {
+    const { adminDeletePrompt } = await import("../services/writingVault.service");
+    await adminDeletePrompt(String(req.params.id));
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/writing-vault/seed", async (req: Request, res: Response) => {
+  try {
+    const { adminSeedDefaults } = await import("../services/writingVault.service");
+    const adminId = (req as any).admin?.id || (req as any).admin?.email || "admin";
+    const result = await adminSeedDefaults(String(adminId));
+    return res.json({ success: true, ...result });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ——— Short Film Showcase ———
+router.get("/short-films", async (req: Request, res: Response) => {
+  try {
+    const { adminListFilms } = await import("../services/shortFilm.service");
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const films = await adminListFilms(status);
+    return res.json({ success: true, data: films });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/short-films/:id/approve", async (req: Request, res: Response) => {
+  try {
+    const { adminModerateFilm } = await import("../services/shortFilm.service");
+    const film = await adminModerateFilm(String(req.params.id), "approve");
+    return res.json({ success: true, data: film });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.post("/short-films/:id/reject", async (req: Request, res: Response) => {
+  try {
+    const { adminModerateFilm } = await import("../services/shortFilm.service");
+    const film = await adminModerateFilm(
+      String(req.params.id),
+      "reject",
+      String(req.body?.reason || "Needs changes")
+    );
+    return res.json({ success: true, data: film });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.post("/short-films/:id/remove", async (req: Request, res: Response) => {
+  try {
+    const { adminModerateFilm } = await import("../services/shortFilm.service");
+    const film = await adminModerateFilm(String(req.params.id), "remove");
+    return res.json({ success: true, data: film });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.get("/short-film-reports", async (_req: Request, res: Response) => {
+  try {
+    const { adminListReports } = await import("../services/shortFilm.service");
+    const reports = await adminListReports();
+    return res.json({ success: true, data: reports });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ——— Script Marketplace ———
+router.get("/marketplace-listings", async (req: Request, res: Response) => {
+  try {
+    const { adminListListings } = await import("../services/marketplace.service");
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const data = await adminListListings(status);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/marketplace-listings/:id/approve", async (req: Request, res: Response) => {
+  try {
+    const { adminModerateListing } = await import("../services/marketplace.service");
+    const data = await adminModerateListing(String(req.params.id), "approve");
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.post("/marketplace-listings/:id/reject", async (req: Request, res: Response) => {
+  try {
+    const { adminModerateListing } = await import("../services/marketplace.service");
+    const data = await adminModerateListing(
+      String(req.params.id),
+      "reject",
+      String(req.body?.reason || "Needs changes")
+    );
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.get("/marketplace-settings", async (_req: Request, res: Response) => {
+  try {
+    const { getMarketplaceCommissionRate } = await import("../services/marketplace.service");
+    const commissionRate = await getMarketplaceCommissionRate();
+    return res.json({ success: true, data: { commissionRate } });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/marketplace-settings", async (req: Request, res: Response) => {
+  try {
+    const rate = Number(req.body?.commissionRate);
+    if (!Number.isFinite(rate) || rate < 0.1 || rate > 0.15) {
+      return res.status(400).json({ error: "commissionRate must be between 0.10 and 0.15" });
+    }
+    const db = getFirestore();
+    await db.collection("settings").doc("marketplace").set(
+      { commissionRate: rate, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+    return res.json({ success: true, data: { commissionRate: rate } });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// ——— Screenwriter Community ———
+router.get("/community-rooms", async (_req: Request, res: Response) => {
+  try {
+    const { adminListRooms } = await import("../services/community.service");
+    const data = await adminListRooms();
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/community-rooms", async (req: Request, res: Response) => {
+  try {
+    const { adminUpsertRoom } = await import("../services/community.service");
+    const data = await adminUpsertRoom({
+      id: req.body?.id,
+      name: String(req.body?.name || ""),
+      description: String(req.body?.description || ""),
+      type: req.body?.type || "public",
+      category: req.body?.category,
+      visibility: req.body?.visibility,
+      status: req.body?.status,
+    });
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/community-reports", async (req: Request, res: Response) => {
+  try {
+    const { adminListReports } = await import("../services/community.service");
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const data = await adminListReports(status);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/community-reports/:id/resolve", async (req: Request, res: Response) => {
+  try {
+    const { adminResolveReport } = await import("../services/community.service");
+    const action = req.body?.action === "remove_content" ? "remove_content" : "dismiss";
+    const data = await adminResolveReport(String(req.params.id), action, req.body?.adminNote);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+router.get("/community-posts", async (req: Request, res: Response) => {
+  try {
+    const { adminListPosts } = await import("../services/community.service");
+    const status = req.query.status ? String(req.query.status) : undefined;
+    const data = await adminListPosts(status);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

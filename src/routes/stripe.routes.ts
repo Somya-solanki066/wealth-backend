@@ -5,6 +5,7 @@ import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.mi
 import { getPlanById, isFreePlan, subscriptionFieldsForPlan, toStripeUnitAmount } from "../utils/plans";
 import { getPrimaryFrontendUrl } from "../utils/envUrls";
 import { handleCourseCheckoutWebhook } from "./courseEnrollment.routes";
+import { handleMarketplaceCheckoutWebhook } from "./marketplace.routes";
 
 const router = express.Router();
 
@@ -165,6 +166,18 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         }
       } catch (error) {
         console.error("Error fulfilling course enrollment:", error);
+      }
+      return res.send();
+    }
+
+    if (session.metadata?.type === "marketplace") {
+      try {
+        const result = await handleMarketplaceCheckoutWebhook(session);
+        if (result) {
+          console.log(`Marketplace purchase fulfilled for listing ${result.listingId}`);
+        }
+      } catch (error) {
+        console.error("Error fulfilling marketplace purchase:", error);
       }
       return res.send();
     }

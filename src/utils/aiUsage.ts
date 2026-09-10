@@ -29,7 +29,10 @@ export type AiUsageLogInput = {
     | "booktok-hook"
     | "medium-outline"
     | "query-letter"
-    | "social-kit";
+    | "social-kit"
+    | "writing-vault"
+    | "book-cover"
+    | "pitch-synopsis";
   wordsAnalyzed?: number;
   tokensUsed?: number;
   promptTokens?: number;
