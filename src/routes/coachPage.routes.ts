@@ -1,10 +1,8 @@
 import express from "express";
-import multer from "multer";
-import path from "path";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyAdmin } from "../middleware/admin.middleware";
-import { getUploadsDir } from "../utils/paths";
-import { buildUploadUrl } from "../utils/publicUrl";
+import { memoryImageUpload } from "../utils/multerImages";
+import { makeUploadFilename, persistPublicUpload } from "../utils/uploadStorage";
 import {
   COACH_PAGE_COLLECTION,
   COACH_PAGE_DOC_ID,
@@ -13,31 +11,7 @@ import {
 } from "../utils/coachPageDefaults";
 
 const router = express.Router();
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, getUploadsDir());
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, `coach-page-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp/;
-    const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimeType = allowedTypes.test(file.mimetype);
-    if (extName && mimeType) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPEG, JPG, PNG and WEBP image files are allowed."));
-    }
-  },
-});
+const upload = memoryImageUpload;
 
 function docRef() {
   return getFirestore().collection(COACH_PAGE_COLLECTION).doc(COACH_PAGE_DOC_ID);
@@ -100,7 +74,8 @@ router.post(
         return res.status(400).json({ error: "No photo image file uploaded." });
       }
 
-      const fileUrl = buildUploadUrl(req, req.file.filename);
+      const filename = makeUploadFilename("coach-page", req.file.originalname);
+      const fileUrl = await persistPublicUpload(req, req.file, filename);
       await docRef().set(
         {
           photoUrl: fileUrl,
@@ -114,9 +89,9 @@ router.post(
         photoUrl: fileUrl,
         photoURL: fileUrl,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading coach page photo:", error);
-      res.status(500).json({ error: "Internal server error." });
+      res.status(500).json({ error: error?.message || "Internal server error." });
     }
   }
 );

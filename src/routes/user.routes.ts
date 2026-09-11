@@ -1,41 +1,14 @@
 import { Router, Response } from "express";
-import multer from "multer";
-import path from "path";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
-import { getUploadsDir } from "../utils/paths";
-import { buildUploadUrl } from "../utils/publicUrl";
+import { makeUploadFilename, persistPublicUpload } from "../utils/uploadStorage";
+import { memoryImageUpload } from "../utils/multerImages";
 import { getPlanById, isFreePlan, subscriptionFieldsForPlan } from "../utils/plans";
 import { getCourseProduct } from "../data/courseProducts";
 import { getCourseFeatures } from "../data/courseFeatures";
 
 const router = Router();
-
-// Multer disk storage setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, getUploadsDir());
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, `avatar-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp/;
-    const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimeType = allowedTypes.test(file.mimetype);
-    if (extName && mimeType) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPEG, JPG, PNG and WEBP image files are allowed."));
-    }
-  },
-});
+const upload = memoryImageUpload;
 
 // Verify endpoint: checks user doc in Firestore and returns profile
 router.post("/verify", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
@@ -104,8 +77,9 @@ router.post(
         return res.status(400).json({ error: "No avatar image file uploaded" });
       }
 
-      // Generate public URL for the uploaded file (HTTPS-safe / relative)
-      const fileUrl = buildUploadUrl(req, req.file.filename);
+      // Persist to Firebase Storage on Vercel (durable HTTPS URL)
+      const filename = makeUploadFilename("avatar", req.file.originalname);
+      const fileUrl = await persistPublicUpload(req, req.file, filename);
 
       // Update Firestore user document
       const db = getFirestore();

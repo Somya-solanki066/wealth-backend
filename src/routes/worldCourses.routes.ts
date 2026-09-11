@@ -1,10 +1,8 @@
 import express from "express";
-import multer from "multer";
-import path from "path";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyAdmin } from "../middleware/admin.middleware";
-import { getUploadsDir } from "../utils/paths";
-import { buildUploadUrl } from "../utils/publicUrl";
+import { memoryImageUpload } from "../utils/multerImages";
+import { makeUploadFilename, persistPublicUpload } from "../utils/uploadStorage";
 import {
   WORLD_COURSE_IDS,
   createEmptyWorldCourse,
@@ -17,48 +15,8 @@ import {
 
 const router = express.Router();
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, getUploadsDir());
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, `world-coach-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
-
-const thumbnailStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, getUploadsDir());
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, `world-banner-${uniqueSuffix}${path.extname(file.originalname)}`);
-  },
-});
-
-const imageFilter: multer.Options["fileFilter"] = (_req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|webp/;
-  const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimeType = allowedTypes.test(file.mimetype);
-  if (extName && mimeType) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only JPEG, JPG, PNG and WEBP image files are allowed."));
-  }
-};
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: imageFilter,
-});
-
-const uploadThumbnail = multer({
-  storage: thumbnailStorage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: imageFilter,
-});
+const upload = memoryImageUpload;
+const uploadThumbnail = memoryImageUpload;
 
 router.get("/", async (_req, res) => {
   try {
@@ -168,7 +126,8 @@ router.post(
         return res.status(400).json({ error: "No photo image file uploaded." });
       }
 
-      const fileUrl = buildUploadUrl(req, req.file.filename);
+      const filename = makeUploadFilename("world-coach", req.file.originalname);
+      const fileUrl = await persistPublicUpload(req, req.file, filename);
       const db = getFirestore();
       const docRef = db.collection("world_courses").doc(worldId);
       const doc = await docRef.get();
@@ -199,9 +158,9 @@ router.post(
         photoURL: fileUrl,
         coachPhotoUrl: fileUrl,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading world course coach photo:", error);
-      res.status(500).json({ error: "Internal server error." });
+      res.status(500).json({ error: error?.message || "Internal server error." });
     }
   }
 );
@@ -228,7 +187,8 @@ router.post(
         return res.status(400).json({ error: "No thumbnail image file uploaded." });
       }
 
-      const fileUrl = buildUploadUrl(req, req.file.filename);
+      const filename = makeUploadFilename("world-banner", req.file.originalname);
+      const fileUrl = await persistPublicUpload(req, req.file, filename);
       const db = getFirestore();
       const docRef = db.collection("world_courses").doc(worldId);
       const doc = await docRef.get();
@@ -268,9 +228,9 @@ router.post(
         bannerImageUrl: fileUrl,
         thumbnailUrl: fileUrl,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading world course thumbnail:", error);
-      res.status(500).json({ error: "Internal server error." });
+      res.status(500).json({ error: error?.message || "Internal server error." });
     }
   }
 );
@@ -297,7 +257,8 @@ router.post(
         return res.status(400).json({ error: "No My Student banner image uploaded." });
       }
 
-      const fileUrl = buildUploadUrl(req, req.file.filename);
+      const filename = makeUploadFilename("world-banner", req.file.originalname);
+      const fileUrl = await persistPublicUpload(req, req.file, filename);
       const db = getFirestore();
       const docRef = db.collection("world_courses").doc(worldId);
       const doc = await docRef.get();
@@ -335,9 +296,9 @@ router.post(
         message: "My Student banner uploaded successfully.",
         myStudentBannerImageUrl: fileUrl,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error uploading world My Student banner:", error);
-      res.status(500).json({ error: "Internal server error." });
+      res.status(500).json({ error: error?.message || "Internal server error." });
     }
   }
 );

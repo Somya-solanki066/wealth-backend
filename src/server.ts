@@ -75,12 +75,26 @@ const app = express();
 app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
 
+function resolveStorageBucket(serviceAccount?: { project_id?: string; projectId?: string }) {
+  const fromEnv = process.env.FIREBASE_STORAGE_BUCKET || process.env.GCLOUD_STORAGE_BUCKET;
+  if (fromEnv) return fromEnv;
+  const projectId =
+    serviceAccount?.project_id ||
+    serviceAccount?.projectId ||
+    process.env.FIREBASE_PROJECT_ID ||
+    "";
+  return projectId ? `${projectId}.appspot.com` : undefined;
+}
+
 function initFirebaseAdmin(): boolean {
   const jsonFromEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (jsonFromEnv) {
     try {
       const serviceAccount = JSON.parse(jsonFromEnv);
-      initializeApp({ credential: cert(serviceAccount) });
+      initializeApp({
+        credential: cert(serviceAccount),
+        storageBucket: resolveStorageBucket(serviceAccount),
+      });
       console.log("✔ Firebase Admin SDK initialized from FIREBASE_SERVICE_ACCOUNT.");
       return true;
     } catch (error) {
@@ -96,6 +110,7 @@ function initFirebaseAdmin(): boolean {
     try {
       initializeApp({
         credential: cert({ projectId, clientEmail, privateKey }),
+        storageBucket: resolveStorageBucket({ projectId }),
       });
       console.log("✔ Firebase Admin SDK initialized from FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY.");
       return true;
@@ -125,7 +140,10 @@ function initFirebaseAdmin(): boolean {
 
   try {
     const serviceAccount = JSON.parse(fs.readFileSync(resolvedPath, "utf8"));
-    initializeApp({ credential: cert(serviceAccount) });
+    initializeApp({
+      credential: cert(serviceAccount),
+      storageBucket: resolveStorageBucket(serviceAccount),
+    });
     console.log("✔ Firebase Admin SDK initialized successfully.");
     return true;
   } catch (error) {
