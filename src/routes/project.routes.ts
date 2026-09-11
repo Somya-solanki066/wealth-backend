@@ -71,6 +71,8 @@ router.post("/", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Res
       status: "Draft",
       wordCount: 0,
       chapterCount: 1,
+      // Script page background — used in editor, view, and imports
+      pageBackgroundColor: type === "script" ? "#000000" : null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -98,6 +100,48 @@ router.post("/", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Res
     return res.status(201).json(newProject);
   } catch (error: any) {
     console.error("Error creating project:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/projects/:id - Update project metadata (e.g. script page background)
+router.put("/:id", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "User payload missing" });
+    }
+
+    const db = getFirestore();
+    const projectRef = db.collection("projects").doc(String(req.params.id));
+    const snap = await projectRef.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "Project not found" });
+    }
+    if (snap.data()?.userId !== req.user.uid) {
+      return res.status(403).json({ error: "Unauthorized access" });
+    }
+
+    const updates: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (typeof req.body?.name === "string" && req.body.name.trim()) {
+      updates.name = req.body.name.trim();
+    }
+
+    if (req.body?.pageBackgroundColor != null) {
+      const color = String(req.body.pageBackgroundColor).trim();
+      if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) {
+        return res.status(400).json({ error: "Invalid page background color." });
+      }
+      updates.pageBackgroundColor = color;
+    }
+
+    await projectRef.set(updates, { merge: true });
+    const next = await projectRef.get();
+    return res.status(200).json({ id: next.id, ...next.data() });
+  } catch (error: any) {
+    console.error("Error updating project:", error);
     return res.status(500).json({ error: error.message });
   }
 });
