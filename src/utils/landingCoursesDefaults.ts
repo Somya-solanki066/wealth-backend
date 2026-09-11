@@ -17,6 +17,13 @@ export type LandingCourse = {
   title: string;
   bannerEmoji: string;
   bannerGradient: string;
+  /** Course card thumbnail / banner image (overrides emoji when set). */
+  bannerImageUrl: string;
+  /** Mid-page “My Student” banner between course card and Your Coach. */
+  myStudentBannerImageUrl: string;
+  myStudentBannerHeading: string;
+  myStudentBannerSubtext: string;
+  myStudentBannerYoutubeUrl: string;
   kicker: string;
   courseName: string;
   description: string;
@@ -59,6 +66,12 @@ export const DEFAULT_LANDING_COURSES: Record<LandingCourseId, LandingCourse> = {
     title: "WIT-WEB Academy",
     bannerEmoji: "📖",
     bannerGradient: "linear-gradient(135deg,#1a1200,#2e2000)",
+    bannerImageUrl: "",
+    myStudentBannerImageUrl: "",
+    myStudentBannerHeading: "My Students",
+    myStudentBannerSubtext:
+      "A growing community of writers learning, shipping, and building wealth with their words.",
+    myStudentBannerYoutubeUrl: "",
     kicker: "WIT-WEB Academy",
     courseName: "Webnoveling Ink to Wealth Blueprint",
     description:
@@ -123,6 +136,12 @@ export const DEFAULT_LANDING_COURSES: Record<LandingCourseId, LandingCourse> = {
     title: "SSG Blueprint",
     bannerEmoji: "🎬",
     bannerGradient: "linear-gradient(135deg,#1a0006,#2e0010)",
+    bannerImageUrl: "",
+    myStudentBannerImageUrl: "",
+    myStudentBannerHeading: "My Students",
+    myStudentBannerSubtext:
+      "A growing community of writers learning, shipping, and building wealth with their words.",
+    myStudentBannerYoutubeUrl: "",
     kicker: "SSG Blueprint",
     courseName: "Scriptwriting and Screenwriting Guide",
     description:

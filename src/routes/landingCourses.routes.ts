@@ -23,19 +23,37 @@ const storage = multer.diskStorage({
   },
 });
 
+const thumbnailStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, getUploadsDir());
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `course-banner-${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
+});
+
+const imageFilter: multer.Options["fileFilter"] = (_req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|webp/;
+  const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimeType = allowedTypes.test(file.mimetype);
+  if (extName && mimeType) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only JPEG, JPG, PNG and WEBP image files are allowed."));
+  }
+};
+
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp/;
-    const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimeType = allowedTypes.test(file.mimetype);
-    if (extName && mimeType) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPEG, JPG, PNG and WEBP image files are allowed."));
-    }
-  },
+  fileFilter: imageFilter,
+});
+
+const uploadThumbnail = multer({
+  storage: thumbnailStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: imageFilter,
 });
 
 function mergeCourse(courseId: LandingCourseId, stored: Record<string, unknown> | undefined) {
@@ -153,6 +171,93 @@ router.post(
       });
     } catch (error) {
       console.error("Error uploading coach photo:", error);
+      res.status(500).json({ error: "Internal server error." });
+    }
+  }
+);
+
+router.post(
+  "/:courseId/thumbnail",
+  verifyAdmin,
+  (req, res, next) => {
+    uploadThumbnail.single("thumbnail")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const courseId = String(req.params.courseId);
+      if (!isValidCourseId(courseId)) {
+        return res.status(400).json({ error: "Invalid course id. Use witweb or ssg." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No thumbnail image file uploaded." });
+      }
+
+      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      const db = getFirestore();
+      const docRef = db.collection("landing_courses").doc(courseId);
+      await docRef.set(
+        {
+          bannerImageUrl: fileUrl,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      res.json({
+        message: "Course thumbnail uploaded successfully.",
+        bannerImageUrl: fileUrl,
+        thumbnailUrl: fileUrl,
+      });
+    } catch (error) {
+      console.error("Error uploading course thumbnail:", error);
+      res.status(500).json({ error: "Internal server error." });
+    }
+  }
+);
+
+router.post(
+  "/:courseId/my-student-banner",
+  verifyAdmin,
+  (req, res, next) => {
+    uploadThumbnail.single("banner")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const courseId = String(req.params.courseId);
+      if (!isValidCourseId(courseId)) {
+        return res.status(400).json({ error: "Invalid course id. Use witweb or ssg." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No My Student banner image uploaded." });
+      }
+
+      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      const db = getFirestore();
+      const docRef = db.collection("landing_courses").doc(courseId);
+      await docRef.set(
+        {
+          myStudentBannerImageUrl: fileUrl,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      res.json({
+        message: "My Student banner uploaded successfully.",
+        myStudentBannerImageUrl: fileUrl,
+      });
+    } catch (error) {
+      console.error("Error uploading My Student banner:", error);
       res.status(500).json({ error: "Internal server error." });
     }
   }

@@ -33,6 +33,12 @@ export function createEmptyWorldCourse(id?: string): WorldFlagshipCourse {
     title: "New Course",
     bannerEmoji: "📖",
     bannerGradient: "linear-gradient(135deg,#1a1200,#2e2000)",
+    bannerImageUrl: "",
+    myStudentBannerImageUrl: "",
+    myStudentBannerHeading: "My Students",
+    myStudentBannerSubtext:
+      "A growing community of writers learning, shipping, and building wealth with their words.",
+    myStudentBannerYoutubeUrl: "",
     kicker: "New Course",
     courseName: "Course Name",
     description: "Add your course description here.",

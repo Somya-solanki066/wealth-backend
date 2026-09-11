@@ -26,19 +26,37 @@ const storage = multer.diskStorage({
   },
 });
 
+const thumbnailStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, getUploadsDir());
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `world-banner-${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
+});
+
+const imageFilter: multer.Options["fileFilter"] = (_req, file, cb) => {
+  const allowedTypes = /jpeg|jpg|png|webp/;
+  const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+  const mimeType = allowedTypes.test(file.mimetype);
+  if (extName && mimeType) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only JPEG, JPG, PNG and WEBP image files are allowed."));
+  }
+};
+
 const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|webp/;
-    const extName = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimeType = allowedTypes.test(file.mimetype);
-    if (extName && mimeType) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPEG, JPG, PNG and WEBP image files are allowed."));
-    }
-  },
+  fileFilter: imageFilter,
+});
+
+const uploadThumbnail = multer({
+  storage: thumbnailStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: imageFilter,
 });
 
 router.get("/", async (_req, res) => {
@@ -182,6 +200,142 @@ router.post(
       });
     } catch (error) {
       console.error("Error uploading world course coach photo:", error);
+      res.status(500).json({ error: "Internal server error." });
+    }
+  }
+);
+
+router.post(
+  "/:worldId/courses/:courseId/thumbnail",
+  verifyAdmin,
+  (req, res, next) => {
+    uploadThumbnail.single("thumbnail")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const worldId = String(req.params.worldId);
+      const courseId = String(req.params.courseId);
+      if (!isValidWorldCourseId(worldId)) {
+        return res.status(400).json({ error: "Invalid world id." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No thumbnail image file uploaded." });
+      }
+
+      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      const db = getFirestore();
+      const docRef = db.collection("world_courses").doc(worldId);
+      const doc = await docRef.get();
+      const page = mergeWorldCoursesPage(
+        worldId,
+        doc.exists ? (doc.data() as Record<string, unknown>) : undefined
+      );
+
+      let courses = page.courses.map((c) =>
+        c.id === courseId ? { ...c, bannerImageUrl: fileUrl } : c
+      );
+      const found = courses.some((c) => c.id === courseId);
+
+      // Brand-new unsaved course: merge client course id into list so live upload still persists
+      if (!found) {
+        courses = [
+          ...page.courses,
+          {
+            ...createEmptyWorldCourse(courseId),
+            id: courseId,
+            bannerImageUrl: fileUrl,
+          },
+        ];
+      }
+
+      await docRef.set(
+        {
+          id: worldId,
+          courses,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      res.json({
+        message: "Course thumbnail uploaded successfully.",
+        bannerImageUrl: fileUrl,
+        thumbnailUrl: fileUrl,
+      });
+    } catch (error) {
+      console.error("Error uploading world course thumbnail:", error);
+      res.status(500).json({ error: "Internal server error." });
+    }
+  }
+);
+
+router.post(
+  "/:worldId/courses/:courseId/my-student-banner",
+  verifyAdmin,
+  (req, res, next) => {
+    uploadThumbnail.single("banner")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ error: err.message });
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    try {
+      const worldId = String(req.params.worldId);
+      const courseId = String(req.params.courseId);
+      if (!isValidWorldCourseId(worldId)) {
+        return res.status(400).json({ error: "Invalid world id." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: "No My Student banner image uploaded." });
+      }
+
+      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      const db = getFirestore();
+      const docRef = db.collection("world_courses").doc(worldId);
+      const doc = await docRef.get();
+      const page = mergeWorldCoursesPage(
+        worldId,
+        doc.exists ? (doc.data() as Record<string, unknown>) : undefined
+      );
+
+      let courses = page.courses.map((c) =>
+        c.id === courseId ? { ...c, myStudentBannerImageUrl: fileUrl } : c
+      );
+      const found = courses.some((c) => c.id === courseId);
+
+      if (!found) {
+        courses = [
+          ...page.courses,
+          {
+            ...createEmptyWorldCourse(courseId),
+            id: courseId,
+            myStudentBannerImageUrl: fileUrl,
+          },
+        ];
+      }
+
+      await docRef.set(
+        {
+          id: worldId,
+          courses,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      res.json({
+        message: "My Student banner uploaded successfully.",
+        myStudentBannerImageUrl: fileUrl,
+      });
+    } catch (error) {
+      console.error("Error uploading world My Student banner:", error);
       res.status(500).json({ error: "Internal server error." });
     }
   }
