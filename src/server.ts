@@ -71,6 +71,8 @@ import { verifyAdmin } from "./middleware/admin.middleware";
 dotenv.config();
 
 const app = express();
+// Vercel / reverse proxies terminate TLS; honor X-Forwarded-Proto
+app.set("trust proxy", 1);
 const PORT = process.env.PORT || 5000;
 
 function initFirebaseAdmin(): boolean {

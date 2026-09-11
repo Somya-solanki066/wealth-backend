@@ -4,6 +4,7 @@ import path from "path";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { getUploadsDir } from "../utils/paths";
+import { buildUploadUrl } from "../utils/publicUrl";
 import { getPlanById, isFreePlan, subscriptionFieldsForPlan } from "../utils/plans";
 import { getCourseProduct } from "../data/courseProducts";
 import { getCourseFeatures } from "../data/courseFeatures";
@@ -103,8 +104,8 @@ router.post(
         return res.status(400).json({ error: "No avatar image file uploaded" });
       }
 
-      // Generate host URL for the uploaded file
-      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      // Generate public URL for the uploaded file (HTTPS-safe / relative)
+      const fileUrl = buildUploadUrl(req, req.file.filename);
 
       // Update Firestore user document
       const db = getFirestore();

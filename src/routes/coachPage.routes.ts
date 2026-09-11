@@ -4,6 +4,7 @@ import path from "path";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyAdmin } from "../middleware/admin.middleware";
 import { getUploadsDir } from "../utils/paths";
+import { buildUploadUrl } from "../utils/publicUrl";
 import {
   COACH_PAGE_COLLECTION,
   COACH_PAGE_DOC_ID,
@@ -99,7 +100,7 @@ router.post(
         return res.status(400).json({ error: "No photo image file uploaded." });
       }
 
-      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      const fileUrl = buildUploadUrl(req, req.file.filename);
       await docRef().set(
         {
           photoUrl: fileUrl,
