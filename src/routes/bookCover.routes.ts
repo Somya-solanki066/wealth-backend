@@ -43,22 +43,57 @@ router.post("/book-cover/generate", verifyFirebaseToken, async (req: Authenticat
       });
     }
 
-      const cover = await generateBookCover({
+    const { chargeAiCredits, creditErrorBody, finalizeAiCredits, refundAiCredits } = await import(
+      "../services/aiCredits.service"
+    );
+    const charged = await chargeAiCredits({
       userId: req.user.uid,
-      title: req.body?.title,
-      authorName: req.body?.authorName,
-      showAuthor: req.body?.showAuthor !== false,
-      platform: String(req.body?.platform || ""),
-      genre: String(req.body?.genre || ""),
-      mood: String(req.body?.mood || ""),
-      visualStyle: String(req.body?.visualStyle || ""),
-      sceneDescription: req.body?.sceneDescription,
-      coverFormat: req.body?.coverFormat,
-      projectId: req.body?.projectId || null,
-      parentCoverId: req.body?.parentCoverId || null,
+      toolId: "book-cover",
+      operation: "generate",
+      inputChars: String(req.body?.sceneDescription || req.body?.title || "").length,
     });
+    if (!charged.ok) {
+      return res.status(charged.status).json(creditErrorBody(charged));
+    }
 
-    return res.json({ cover });
+    try {
+      const cover = await generateBookCover({
+        userId: req.user.uid,
+        title: req.body?.title,
+        authorName: req.body?.authorName,
+        showAuthor: req.body?.showAuthor !== false,
+        platform: String(req.body?.platform || ""),
+        genre: String(req.body?.genre || ""),
+        mood: String(req.body?.mood || ""),
+        visualStyle: String(req.body?.visualStyle || ""),
+        sceneDescription: req.body?.sceneDescription,
+        coverFormat: req.body?.coverFormat,
+        projectId: req.body?.projectId || null,
+        parentCoverId: req.body?.parentCoverId || null,
+      });
+
+      await finalizeAiCredits({
+        requestId: charged.reservation.requestId,
+        userId: req.user.uid,
+        status: "success",
+        provider: "openai",
+        model: "dall-e-3",
+        imageUnits: 1,
+      });
+
+      return res.json({
+        cover,
+        creditsCharged: charged.featureCreditCost,
+        creditsRemaining: charged.reservation.balanceAfter,
+      });
+    } catch (inner: any) {
+      await refundAiCredits({
+        requestId: charged.reservation.requestId,
+        userId: req.user.uid,
+        reason: inner?.message || "book_cover_failed",
+      });
+      throw inner;
+    }
   } catch (error: any) {
     const status = error?.status || 500;
     console.error("Book cover generate error:", error);

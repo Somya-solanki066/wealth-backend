@@ -63,6 +63,9 @@ import scriptAnalyzerRoutes from "./routes/scriptAnalyzer.routes";
 import wealthRoutes from "./routes/wealth.routes";
 import industryRoutes from "./routes/industry.routes";
 import wealthToolsRoutes from "./routes/wealthTools.routes";
+import emailTemplatesRoutes from "./routes/emailTemplates.routes";
+import emailRoutes from "./routes/email.routes";
+import cronRoutes from "./routes/cron.routes";
 import { getUploadsDir } from "./utils/paths";
 import { getAllowedCorsOrigins } from "./utils/envUrls";
 import { verifyAdmin } from "./middleware/admin.middleware";
@@ -253,6 +256,9 @@ app.use("/api/world-courses", worldCoursesRoutes);
 app.use("/api/catalog", catalogRoutes);
 app.use("/api/stripe", stripeRoutes);
 app.use("/api/feedback", feedbackRoutes);
+app.use("/api/email-templates", emailTemplatesRoutes);
+app.use("/api/email", emailRoutes);
+app.use("/api/cron", cronRoutes);
 
 // Root route
 app.get("/", (req, res) => {

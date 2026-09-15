@@ -924,6 +924,26 @@ router.get("/ai-usage", async (req: Request, res: Response) => {
   }
 });
 
+/** GET /api/data/ai-credits-metrics — provider cost / credit ledger metrics */
+router.get("/ai-credits-metrics", async (req: Request, res: Response) => {
+  try {
+    const { adminCreditMetrics } = await import("../services/aiCredits.service");
+    const { AI_FEATURE_INVENTORY } = await import("../utils/aiFeatureInventory");
+    const { CREDIT_ALLOWANCES } = await import("../utils/aiCreditsConfig");
+    const days = Math.min(90, Math.max(1, Number(req.query.days || 30)));
+    const metrics = await adminCreditMetrics({ days });
+    return res.status(200).json({
+      success: true,
+      metrics,
+      inventory: AI_FEATURE_INVENTORY,
+      allowances: CREDIT_ALLOWANCES,
+    });
+  } catch (error: any) {
+    console.error("Error fetching AI credit metrics:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 function mapWealthJob(id: string, data: Record<string, any> = {}) {
   return {
     id,

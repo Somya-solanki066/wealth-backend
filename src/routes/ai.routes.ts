@@ -6,14 +6,24 @@ import mammoth from "mammoth";
 import dotenv from "dotenv";
 import { getFirestore } from "firebase-admin/firestore";
 import { getUploadsDir } from "../utils/paths";
-import { isUserPremium } from "../utils/plans";
 import { getOpenAiModel, getSmartEditPrompt } from "../utils/catalog";
-import { getAiUsageCount, recordAiUsage, countWords } from "../utils/aiUsage";
+import { recordAiUsage, countWords } from "../utils/aiUsage";
+import { normalizeSmartEditResult } from "../services/smartEdit.service";
+import { DEFAULT_SMART_EDIT_PROMPT } from "../utils/smartEditPrompt";
+import { creditErrorBody, runMeteredAi } from "../services/aiMeter";
 
 dotenv.config();
 
 const router = express.Router();
 const upload = multer({ dest: getUploadsDir() });
+
+const SCORING_CONTRACT = `
+CRITICAL SCORING CONTRACT (overrides any conflicting instructions above):
+- Score EACH of the 8 checks independently from 0–100 using evidence in the text.
+- Do NOT invent a flat overallScore around 80–85.
+- Return JSON with "checks" (all 8) and "strategy" as specified.
+- Omit overallScore; the server computes it as the equal-weight average of check scores.
+`;
 
 router.post("/smart-edit", upload.single("file"), async (req: express.Request, res: express.Response) => {
   try {
@@ -24,26 +34,7 @@ router.post("/smart-edit", upload.single("file"), async (req: express.Request, r
     }
 
     const db = getFirestore();
-    
-    // 1. Get settings
-    const settingsSnap = await db.collection("settings").doc("global").get();
-    const settings = settingsSnap.data() || { smartEditFreeLimit: 3 };
-    const freeLimit = settings.smartEditFreeLimit || 3;
-
-    // 2. Check user status
-    const userRef = db.collection("users").doc(userId);
-    const userSnap = await userRef.get();
-    const isPremium = isUserPremium(userSnap.data());
-
-    // 3. Enforce Limits for Free users
-    if (!isPremium) {
-      const usageCount = await getAiUsageCount(userId, "smartEditCount");
-      if (usageCount >= freeLimit) {
-        if (req.file) fs.unlinkSync(req.file.path);
-        return res.status(403).json({ error: "Free limit exceeded", limitExceeded: true });
-      }
-    }
-
+    const userSnap = await db.collection("users").doc(userId).get();
     let textToAnalyze = req.body.text || "";
 
     if (req.file) {
@@ -75,10 +66,7 @@ router.post("/smart-edit", upload.single("file"), async (req: express.Request, r
           return res.status(400).json({ error: "Unsupported file format. Please upload PDF, DOCX, or TXT." });
         }
       } finally {
-        // Always clean up the uploaded file
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
       }
     }
 
@@ -86,49 +74,80 @@ router.post("/smart-edit", upload.single("file"), async (req: express.Request, r
       return res.status(400).json({ error: "No text provided for analysis." });
     }
 
-    // Limit text length to prevent massive token usage
-    const MAX_LENGTH = 15000; // Roughly 3000-4000 words
+    const MAX_LENGTH = 15000;
     if (textToAnalyze.length > MAX_LENGTH) {
       textToAnalyze = textToAnalyze.substring(0, MAX_LENGTH);
     }
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const completion = await openai.chat.completions.create({
-      model: await getOpenAiModel(),
-      messages: [
-        { role: "system", content: await getSmartEditPrompt() },
-        { role: "user", content: textToAnalyze }
-      ],
-      response_format: { type: "json_object" }
+    const metered = await runMeteredAi({
+      userId,
+      toolId: "smart-edit",
+      inputChars: textToAnalyze.length,
+      execute: async () => {
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const storedPrompt = await getSmartEditPrompt();
+        const basePrompt =
+          storedPrompt.includes("SCORING RUBRIC") && storedPrompt.includes("strategy")
+            ? storedPrompt
+            : DEFAULT_SMART_EDIT_PROMPT;
+
+        const completion = await openai.chat.completions.create({
+          model: await getOpenAiModel(),
+          temperature: 0.35,
+          messages: [
+            { role: "system", content: `${basePrompt}\n${SCORING_CONTRACT}` },
+            {
+              role: "user",
+              content: `Analyze this draft carefully. Vary check scores based on real evidence — do not cluster around 85.\n\n---\n${textToAnalyze}`,
+            },
+          ],
+          response_format: { type: "json_object" },
+        });
+
+        const aiResponse = completion.choices[0].message.content;
+        if (!aiResponse) throw new Error("No response from OpenAI");
+
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(aiResponse);
+        } catch {
+          throw new Error("Smart Edit returned invalid JSON");
+        }
+
+        const result = normalizeSmartEditResult(parsed);
+        return {
+          data: result,
+          provider: "openai",
+          model: completion.model || "",
+          promptTokens: completion.usage?.prompt_tokens || 0,
+          completionTokens: completion.usage?.completion_tokens || 0,
+        };
+      },
     });
 
-    const aiResponse = completion.choices[0].message.content;
-    if (!aiResponse) {
-      throw new Error("No response from OpenAI");
+    if (!metered.ok) {
+      return res.status(metered.failure.status).json(creditErrorBody(metered.failure));
     }
 
-    const result = JSON.parse(aiResponse);
-    const usage = completion.usage;
-    const wordsAnalyzed = countWords(textToAnalyze);
-    const userEmail = userSnap.data()?.email || null;
-
+    const result = metered.value.result;
     await recordAiUsage({
       userId,
-      userEmail,
+      userEmail: userSnap.data()?.email || null,
       field: "smartEditCount",
       tool: "smart-edit",
-      wordsAnalyzed,
-      tokensUsed: usage?.total_tokens || 0,
-      promptTokens: usage?.prompt_tokens || 0,
-      completionTokens: usage?.completion_tokens || 0,
-      model: completion.model || "",
+      wordsAnalyzed: countWords(textToAnalyze),
+      tokensUsed: 0,
+      model: "",
       fileName: req.file?.originalname || "",
       inputPreview: textToAnalyze,
-      score: result?.overallScore ?? result?.overall_score ?? null,
+      score: result.overallScore,
     });
 
-    return res.json(result);
-
+    return res.json({
+      ...result,
+      creditsCharged: metered.value.creditsCharged,
+      creditsRemaining: metered.value.reservation.balanceAfter,
+    });
   } catch (error: any) {
     console.error("Smart Edit Error:", error);
     return res.status(500).json({ error: error.message || "An error occurred during analysis." });

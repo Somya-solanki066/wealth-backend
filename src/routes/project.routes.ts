@@ -3,9 +3,14 @@ import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import dotenv from "dotenv";
 import OpenAI from "openai";
-import { isUserPremium } from "../utils/plans";
 import { getAnalyzerPrompt, getOpenAiModel } from "../utils/catalog";
-import { getAiUsageCount, recordAiUsage, countWords as countPlainWords } from "../utils/aiUsage";
+import { recordAiUsage, countWords as countPlainWords } from "../utils/aiUsage";
+import {
+  chargeAiCredits,
+  creditErrorBody,
+  finalizeAiCredits,
+  refundAiCredits,
+} from "../services/aiCredits.service";
 
 const router = Router();
 
@@ -488,19 +493,18 @@ router.post("/:id/analyze", verifyFirebaseToken, async (req: AuthenticatedReques
     }
     const settingsSnap = await db.collection("settings").doc("global").get();
     const settings = settingsSnap.data() || { aiAnalyzerFreeLimit: 3 };
-    const freeLimit = settings.aiAnalyzerFreeLimit || 3;
+    void settings;
 
-    const userRef = db.collection("users").doc(userId);
-    const userSnap = await userRef.get();
-    const isPremium = isUserPremium(userSnap.data());
-
-    if (!isPremium) {
-      const usageCount = await getAiUsageCount(userId, "aiAnalyzerCount");
-      if (usageCount >= freeLimit) {
-        return res.status(403).json({ error: "Free limit exceeded", limitExceeded: true });
-      }
+    const charged = await chargeAiCredits({
+      userId,
+      toolId: "chapter-analyzer",
+      inputChars: rawText.length,
+    });
+    if (!charged.ok) {
+      return res.status(charged.status).json(creditErrorBody(charged));
     }
 
+    try {
     // Fetch dynamic platform updates from Firestore if available
     let trendsPromptSection = "";
     try {
@@ -582,7 +586,18 @@ router.post("/:id/analyze", verifyFirebaseToken, async (req: AuthenticatedReques
         inputPreview: rawText,
         score: mockResult.overall_score,
       });
-      return res.status(200).json(mockResult);
+      await finalizeAiCredits({
+        requestId: charged.reservation.requestId,
+        userId,
+        status: "success",
+        provider: "openai",
+        model: "mock",
+      });
+      return res.status(200).json({
+        ...mockResult,
+        creditsCharged: charged.featureCreditCost,
+        creditsRemaining: charged.reservation.balanceAfter,
+      });
     }
 
     // Call OpenAI GPT model with platform-specific system prompts
@@ -659,7 +674,28 @@ Respond ONLY in this JSON format:
       inputPreview: rawText,
       score: parsedContent?.overall_score ?? null,
     });
-    return res.status(200).json(parsedContent);
+    await finalizeAiCredits({
+      requestId: charged.reservation.requestId,
+      userId,
+      status: "success",
+      provider: "openai",
+      model: completion.model || "",
+      promptTokens: usage?.prompt_tokens || 0,
+      completionTokens: usage?.completion_tokens || 0,
+    });
+    return res.status(200).json({
+      ...parsedContent,
+      creditsCharged: charged.featureCreditCost,
+      creditsRemaining: charged.reservation.balanceAfter,
+    });
+    } catch (innerErr: any) {
+      await refundAiCredits({
+        requestId: charged.reservation.requestId,
+        userId,
+        reason: innerErr?.message || "analyze_failed",
+      });
+      throw innerErr;
+    }
   } catch (error: any) {
     console.error("Error analyzing chapter:", error);
     return res.status(500).json({ error: error.message || "Failed to run AI compliance check." });

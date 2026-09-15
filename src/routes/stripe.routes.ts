@@ -6,8 +6,69 @@ import { getPlanById, isFreePlan, subscriptionFieldsForPlan, toStripeUnitAmount 
 import { getPrimaryFrontendUrl } from "../utils/envUrls";
 import { handleCourseCheckoutWebhook } from "./courseEnrollment.routes";
 import { handleMarketplaceCheckoutWebhook } from "./marketplace.routes";
+import { sendSubscriptionConfirmationEmail } from "../services/email.service";
+import { syncCreditsForPlanChange } from "../services/aiCredits.service";
 
 const router = express.Router();
+
+function formatMoney(amountTotal: number | null | undefined, currency: string | null | undefined, fallback: string) {
+  if (typeof amountTotal === "number" && amountTotal > 0) {
+    const major = amountTotal / 100;
+    const cur = (currency || "ngn").toUpperCase();
+    try {
+      return new Intl.NumberFormat("en-NG", { style: "currency", currency: cur }).format(major);
+    } catch {
+      return `${cur} ${major.toLocaleString()}`;
+    }
+  }
+  return fallback;
+}
+
+async function notifySubscriptionPaid(opts: {
+  userId: string;
+  email: string | null | undefined;
+  plan: { id: string; name: string; price: string; features?: { name: string; included: boolean }[] };
+  amountTotal?: number | null;
+  currency?: string | null;
+  subscriptionExpiry?: string | null;
+}) {
+  try {
+    let email = opts.email || "";
+    let name = "Writer";
+    const db = getFirestore();
+    const userSnap = await db.collection("users").doc(opts.userId).get();
+    if (userSnap.exists) {
+      const data = userSnap.data() || {};
+      email = email || String(data.email || "");
+      name = String(data.displayName || name);
+    }
+    if (!email) return;
+    const featuresList = (opts.plan.features || [])
+      .filter((f) => f.included)
+      .slice(0, 6)
+      .map((f) => `• ${f.name}`)
+      .join("<br/>");
+    const expiryDate = opts.subscriptionExpiry
+      ? new Date(opts.subscriptionExpiry).toLocaleDateString("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : "your plan period";
+    await sendSubscriptionConfirmationEmail({
+      to: email,
+      name,
+      planName: opts.plan.name,
+      amount: formatMoney(opts.amountTotal, opts.currency, opts.plan.price),
+      expiryDate,
+      featuresList: featuresList
+        ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#D4D4D4;">${featuresList}</p>`
+        : "",
+    });
+  } catch (err: any) {
+    console.warn("[email] subscription confirmation failed:", err?.message || err);
+  }
+}
 
 function getStripe(): Stripe {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -130,6 +191,18 @@ router.post("/verify-session", verifyFirebaseToken, async (req: AuthenticatedReq
       { merge: true }
     );
 
+    void notifySubscriptionPaid({
+      userId,
+      email: session.customer_email || session.customer_details?.email,
+      plan,
+      amountTotal: session.amount_total,
+      currency: session.currency || plan.currency,
+      subscriptionExpiry: subscription.subscriptionExpiry,
+    });
+    void syncCreditsForPlanChange(userId).catch((err) =>
+      console.warn("[credits] plan sync failed:", err?.message || err)
+    );
+
     return res.json({
       success: true,
       planId: plan.id,
@@ -192,10 +265,8 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
           console.error("Stripe webhook: unknown planId", planId);
         } else {
           const db = getFirestore();
-          await db.collection("users").doc(userId).set(
-            subscriptionFieldsForPlan(plan, "stripe"),
-            { merge: true }
-          );
+          const subscription = subscriptionFieldsForPlan(plan, "stripe");
+          await db.collection("users").doc(userId).set(subscription, { merge: true });
           await db.collection("payments").doc(session.id).set({
             userId,
             email: session.customer_email || session.customer_details?.email || null,
@@ -206,6 +277,17 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
             createdAt: new Date().toISOString(),
           });
           console.log(`Provisioned ${plan.id} for user ${userId}`);
+          void notifySubscriptionPaid({
+            userId,
+            email: session.customer_email || session.customer_details?.email,
+            plan,
+            amountTotal: session.amount_total,
+            currency: session.currency || plan.currency,
+            subscriptionExpiry: subscription.subscriptionExpiry,
+          });
+          void syncCreditsForPlanChange(userId).catch((err) =>
+            console.warn("[credits] plan sync failed:", err?.message || err)
+          );
         }
       } catch (error) {
         console.error("Error updating user after Stripe payment:", error);

@@ -1,4 +1,5 @@
 import { Router, Response } from "express";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
 import { makeUploadFilename, persistPublicUpload } from "../utils/uploadStorage";
@@ -6,6 +7,17 @@ import { memoryImageUpload } from "../utils/multerImages";
 import { getPlanById, isFreePlan, subscriptionFieldsForPlan } from "../utils/plans";
 import { getCourseProduct } from "../data/courseProducts";
 import { getCourseFeatures } from "../data/courseFeatures";
+import {
+  frontendUrl,
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+  sendWelcomeEmail,
+} from "../services/email.service";
+import {
+  ensureWelcomeCredits,
+  getPublicCreditSummary,
+  syncCreditsForPlanChange,
+} from "../services/aiCredits.service";
 
 const router = Router();
 const upload = memoryImageUpload;
@@ -32,10 +44,45 @@ router.post("/verify", verifyFirebaseToken, async (req: AuthenticatedRequest, re
         createdAt: new Date().toISOString(),
       };
       await userRef.set(newUser);
+      if (email) {
+        sendWelcomeEmail(email, newUser.displayName)
+          .then(async (result) => {
+            if (result.ok && !result.skipped) {
+              await userRef.set(
+                { welcomeEmailSentAt: new Date().toISOString() },
+                { merge: true }
+              );
+            }
+          })
+          .catch((err) => console.warn("[email] welcome failed:", err?.message || err));
+      }
+      ensureWelcomeCredits(uid).catch((err) =>
+        console.warn("[credits] welcome grant failed:", err?.message || err)
+      );
       return res.status(201).json(newUser);
     }
 
     const existing = docSnap.data() || {};
+
+    // Client may create the user doc before /verify; still send welcome once for new accounts
+    if (
+      email &&
+      !existing.welcomeEmailSentAt &&
+      existing.createdAt &&
+      Date.now() - new Date(existing.createdAt).getTime() < 48 * 60 * 60 * 1000
+    ) {
+      sendWelcomeEmail(email, String(existing.displayName || name || "User"))
+        .then(async (result) => {
+          if (result.ok) {
+            await userRef.set(
+              { welcomeEmailSentAt: new Date().toISOString() },
+              { merge: true }
+            );
+          }
+        })
+        .catch((err) => console.warn("[email] welcome failed:", err?.message || err));
+    }
+
     const currentName = typeof existing.displayName === "string" ? existing.displayName.trim() : "";
     const needsName =
       !currentName || currentName.toLowerCase() === "user";
@@ -98,6 +145,18 @@ router.post(
     }
   }
 );
+
+// Ink2Wealth AI Credits balance (customer-facing — no provider token economics)
+router.get("/ai-credits", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const summary = await getPublicCreditSummary(req.user.uid);
+    return res.json(summary);
+  } catch (error: any) {
+    console.error("ai-credits error:", error);
+    return res.status(500).json({ error: error.message || "Failed to load AI credits" });
+  }
+});
 
 // Retrieve writing streak status
 router.get("/streak", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
@@ -215,6 +274,7 @@ router.post("/select-plan", verifyFirebaseToken, async (req: AuthenticatedReques
       subscriptionFieldsForPlan(plan, "select-plan"),
       { merge: true }
     );
+    await syncCreditsForPlanChange(req.user.uid).catch(() => undefined);
     return res.status(200).json({ success: true, planId: plan.id });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -531,6 +591,96 @@ router.get("/transactions/:type/:id", verifyFirebaseToken, async (req: Authentic
     return res.status(500).json({ error: err.message || "Failed to load transaction." });
   }
 });
+
+/**
+ * Public: branded password-reset email (Firebase Admin link + SMTP template).
+ * Always returns a success-shaped response to avoid email enumeration.
+ */
+router.post("/request-password-reset", async (req, res: Response) => {
+  try {
+    const email = String(req.body?.email || "")
+      .trim()
+      .toLowerCase();
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ error: "Valid email is required" });
+    }
+
+    const continueUrl = `${frontendUrl()}/login`;
+    try {
+      const link = await getAuth().generatePasswordResetLink(email, {
+        url: continueUrl,
+        handleCodeInApp: false,
+      });
+      let name = "Writer";
+      try {
+        const db = getFirestore();
+        const users = await db.collection("users").where("email", "==", email).limit(1).get();
+        if (!users.empty) {
+          name = String(users.docs[0].data()?.displayName || name);
+        } else {
+          const userRecord = await getAuth().getUserByEmail(email);
+          name = userRecord.displayName || name;
+        }
+      } catch {
+        /* use default name */
+      }
+      await sendPasswordResetEmail(email, name, link);
+    } catch (err: any) {
+      console.warn("[email] password-reset request:", err?.code || err?.message || err);
+    }
+
+    return res.json({
+      success: true,
+      message: "If an account exists for that email, a reset link has been sent.",
+    });
+  } catch (error: any) {
+    console.error("request-password-reset error:", error);
+    return res.status(500).json({ error: "Failed to process password reset request" });
+  }
+});
+
+/** Authenticated: branded email verification link */
+router.post(
+  "/send-verification",
+  verifyFirebaseToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+      const email = String(req.user.email || "").trim();
+      if (!email) {
+        return res.status(400).json({ error: "User has no email" });
+      }
+
+      const continueUrl = `${frontendUrl()}/dashboard`;
+      const link = await getAuth().generateEmailVerificationLink(email, {
+        url: continueUrl,
+        handleCodeInApp: false,
+      });
+
+      let name = req.user.name || "Writer";
+      try {
+        const db = getFirestore();
+        const snap = await db.collection("users").doc(req.user.uid).get();
+        if (snap.exists) {
+          name = String(snap.data()?.displayName || name);
+        }
+      } catch {
+        /* ignore */
+      }
+
+      const result = await sendVerificationEmail(email, name, link);
+      if (!result.ok && result.reason === "smtp_not_configured") {
+        return res.status(503).json({ error: "Email delivery is not configured", result });
+      }
+      return res.json({ success: result.ok, result });
+    } catch (error: any) {
+      console.error("send-verification error:", error);
+      return res.status(500).json({
+        error: error.message || "Failed to send verification email",
+      });
+    }
+  }
+);
 
 export default router;
 

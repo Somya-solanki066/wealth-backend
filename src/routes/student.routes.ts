@@ -6,10 +6,66 @@ import { AuthenticatedRequest, verifyFirebaseToken } from "../middleware/auth.mi
 import { getOpenAiModel } from "../utils/catalog";
 import { isUserPremium } from "../utils/plans";
 import { countWords, recordAiUsage } from "../utils/aiUsage";
+import {
+  chargeAiCredits,
+  creditErrorBody,
+  finalizeAiCredits,
+  refundAiCredits,
+  type ChargeSuccess,
+} from "../services/aiCredits.service";
 
 dotenv.config();
 
 const router = express.Router();
+
+async function beginStudentCredits(
+  req: AuthenticatedRequest,
+  res: express.Response,
+  toolId: "study-planner" | "flashcards" | "citation" | "video-finder" | "essay-writer",
+  inputChars = 0
+): Promise<ChargeSuccess | null> {
+  if (!req.user) {
+    res.status(401).json({ error: "Unauthorized." });
+    return null;
+  }
+  const charged = await chargeAiCredits({
+    userId: req.user.uid,
+    toolId,
+    inputChars,
+  });
+  if (!charged.ok) {
+    res.status(charged.status).json(creditErrorBody(charged));
+    return null;
+  }
+  return charged;
+}
+
+async function completeStudentCredits(
+  req: AuthenticatedRequest,
+  charged: ChargeSuccess,
+  usage?: { prompt_tokens?: number; completion_tokens?: number },
+  model?: string
+) {
+  if (!req.user) return;
+  await finalizeAiCredits({
+    requestId: charged.reservation.requestId,
+    userId: req.user.uid,
+    status: "success",
+    provider: "openai",
+    model,
+    promptTokens: usage?.prompt_tokens || 0,
+    completionTokens: usage?.completion_tokens || 0,
+  });
+}
+
+async function failStudentCredits(req: AuthenticatedRequest, charged: ChargeSuccess, reason: string) {
+  if (!req.user) return;
+  await refundAiCredits({
+    requestId: charged.reservation.requestId,
+    userId: req.user.uid,
+    reason,
+  });
+}
 
 async function callJsonOpenAi(system: string, user: string) {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -167,6 +223,10 @@ router.post("/study-planner", verifyFirebaseToken, async (req: AuthenticatedRequ
       return res.status(400).json({ error: "Set a primary exam date or subject exam dates." });
     }
 
+    const charged = await beginStudentCredits(req, res, "study-planner", JSON.stringify(effectiveProfile).length);
+    if (!charged) return;
+
+    try {
     const result = await callJsonOpenAi(
       `You are an expert Nigerian academic study coach (WAEC, NECO, JAMB/UTME, school and university exams).
 Return JSON only:
@@ -209,15 +269,20 @@ Allocate more time to weak subjects/topics. Match available days and preferred t
       result.model
     );
 
+    await completeStudentCredits(req, charged, result.usage, result.model);
+
     return res.json({
       id: ref.id,
       title,
       summary,
       days,
-      profile: effectiveProfile,
-      createdAt: now,
-      updatedAt: now,
+      creditsCharged: charged.featureCreditCost,
+      creditsRemaining: charged.reservation.balanceAfter,
     });
+    } catch (inner: any) {
+      await failStudentCredits(req, charged, inner?.message || "study_planner_failed");
+      throw inner;
+    }
   } catch (error: any) {
     console.error("Study planner error:", error);
     return res.status(500).json({ error: error.message || "Failed to generate study plan." });
@@ -352,6 +417,14 @@ router.post("/flashcards", verifyFirebaseToken, async (req: AuthenticatedRequest
         ? `Topic: ${topic}${subject ? ` | Subject: ${subject}` : ""}${level ? ` | Level: ${level}` : ""}`
         : notes.slice(0, 200);
 
+    const charged = await beginStudentCredits(
+      req,
+      res,
+      "flashcards",
+      mode === "topic" ? topic.length : notes.length
+    );
+    if (!charged) return;
+
     const userPrompt =
       mode === "topic"
         ? `Mode: Topic
@@ -366,6 +439,7 @@ Create exactly ${count} active-recall flashcards from these notes:
 
 ${notes.slice(0, 12000)}`;
 
+    try {
     const result = await callJsonOpenAi(
       `You create active-recall flashcards for Nigerian and international students (WAEC, NECO, JAMB, school, university).
 Return JSON only:
@@ -397,12 +471,20 @@ Title should be short, e.g. "Physics — Newton's Laws".`,
       countWords(mode === "topic" ? topic : notes)
     );
 
+    await completeStudentCredits(req, charged, result.usage, result.model);
+
     return res.json({
       title: String(result.data?.title || (mode === "topic" ? topic : "Flashcard Set")),
       cards,
       count: cards.length,
       meta: { mode, topic, subject, level, requested: count },
+      creditsCharged: charged.featureCreditCost,
+      creditsRemaining: charged.reservation.balanceAfter,
     });
+    } catch (inner: any) {
+      await failStudentCredits(req, charged, inner?.message || "flashcards_failed");
+      throw inner;
+    }
   } catch (error: any) {
     console.error("Flashcards error:", error);
     return res.status(500).json({ error: error.message || "Failed to generate flashcards." });
@@ -814,8 +896,12 @@ router.post("/essay", verifyFirebaseToken, async (req: AuthenticatedRequest, res
       });
     }
 
+    const charged = await beginStudentCredits(req, res, "essay-writer", topic.length + instructions.length);
+    if (!charged) return;
+
     const levelLine = [educationBand, educationLevel].filter(Boolean).join(" / ") || "Secondary School";
 
+    try {
     const result = await callJsonOpenAi(
       `You are an academic writing assistant for Nigerian students (WAEC, NECO, JAMB, school and university).
 Return JSON only:
@@ -870,6 +956,8 @@ ${instructions || "(none)"}`
       countWords(document)
     );
 
+    await completeStudentCredits(req, charged, result.usage, result.model);
+
     return res.json({
       title,
       document,
@@ -879,7 +967,13 @@ ${instructions || "(none)"}`
       subject,
       purpose,
       referenceNote,
+      creditsCharged: charged.featureCreditCost,
+      creditsRemaining: charged.reservation.balanceAfter,
     });
+    } catch (inner: any) {
+      await failStudentCredits(req, charged, inner?.message || "essay_failed");
+      throw inner;
+    }
   } catch (error: any) {
     console.error("Essay writer error:", error);
     return res.status(500).json({ error: error.message || "Failed to generate document." });

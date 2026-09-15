@@ -6,10 +6,57 @@ import { AuthenticatedRequest, verifyFirebaseToken } from "../middleware/auth.mi
 import { getOpenAiModel } from "../utils/catalog";
 import { getPlanById, isUserPremium } from "../utils/plans";
 import { countWords, recordAiUsage } from "../utils/aiUsage";
+import {
+  chargeAiCredits,
+  creditErrorBody,
+  finalizeAiCredits,
+  refundAiCredits,
+} from "../services/aiCredits.service";
+import {
+  frontendUrl,
+  sendAiGenerationCompleteEmail,
+} from "../services/email.service";
 
 dotenv.config();
 
 const router = express.Router();
+
+const AI_EMAIL_MIN_WORDS = 800;
+
+async function maybeNotifyAiComplete(opts: {
+  userId: string;
+  email?: string | null;
+  name?: string | null;
+  projectTitle: string;
+  wordCount: number;
+  mode: "novel" | "script";
+}) {
+  // Always for script; chapters when generation is "long" (word threshold)
+  if (opts.mode === "novel" && opts.wordCount < AI_EMAIL_MIN_WORDS) return;
+  try {
+    let email = opts.email || "";
+    let name = opts.name || "Writer";
+    if (!email) {
+      const db = getFirestore();
+      const snap = await db.collection("users").doc(opts.userId).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        email = String(data.email || "");
+        name = String(data.displayName || name);
+      }
+    }
+    if (!email) return;
+    await sendAiGenerationCompleteEmail({
+      to: email,
+      name,
+      projectTitle: opts.projectTitle,
+      resultUrl: `${frontendUrl()}/dashboard`,
+      wordCount: opts.wordCount,
+    });
+  } catch (err: any) {
+    console.warn("[email] AI complete failed:", err?.message || err);
+  }
+}
 
 const NOVEL_TONES = [
   "Emotional",
@@ -63,24 +110,18 @@ async function assertGhostWriterAccess(userId: string) {
     return { ok: false as const, status: 404, error: "User not found." };
   }
   const userData = userSnap.data() || {};
-  if (!isUserPremium(userData)) {
-    return {
-      ok: false as const,
-      status: 403,
-      error: "AI Ghost Writer requires an active subscription.",
-      premiumRequired: true,
-    };
-  }
-  const planId = String(userData.subscriptionPlan || "");
-  const plan = planId ? await getPlanById(planId) : null;
-  const allowedByPlan = plan ? plan.ghostWriter === true : Boolean(userData.isPremium);
-  if (!allowedByPlan) {
-    return {
-      ok: false as const,
-      status: 403,
-      error: "Your plan does not include AI Ghost Writer.",
-      premiumRequired: true,
-    };
+  // Premium plans always allowed (credits still charged). Free users may try via credits + freeMaxPerPeriod.
+  if (isUserPremium(userData)) {
+    const planId = String(userData.subscriptionPlan || "");
+    const plan = planId ? await getPlanById(planId) : null;
+    if (plan && plan.ghostWriter === false) {
+      return {
+        ok: false as const,
+        status: 403,
+        error: "Your plan does not include AI Ghost Writer.",
+        premiumRequired: true,
+      };
+    }
   }
   return { ok: true as const, userData };
 }
@@ -183,6 +224,17 @@ router.post(
         });
       }
 
+      const charged = await chargeAiCredits({
+        userId,
+        toolId: "ghost-writer",
+        operation: "generateChapter",
+        inputChars: plot.length + String(previousContent || "").length,
+      });
+      if (!charged.ok) {
+        return res.status(charged.status).json(creditErrorBody(charged));
+      }
+
+      try {
       const autoContext = await buildProjectContext(userId, projectId || null);
       const continuity = [String(contextSummary || "").trim(), autoContext]
         .filter(Boolean)
@@ -257,12 +309,41 @@ Match the selected platform's house style and reader expectations.`;
         inputPreview: plot,
       });
 
+      void maybeNotifyAiComplete({
+        userId,
+        email: access.userData.email || req.user.email,
+        name: access.userData.displayName,
+        projectTitle: `Chapter ${chapterNum} — ${title}`,
+        wordCount,
+        mode: "novel",
+      });
+
+      await finalizeAiCredits({
+        requestId: charged.reservation.requestId,
+        userId,
+        status: "success",
+        provider: "openai",
+        model: result.model,
+        promptTokens: result.usage?.prompt_tokens || 0,
+        completionTokens: result.usage?.completion_tokens || 0,
+      });
+
       return res.json({
         sessionId: session.id,
         generatedContent: result.content,
         wordCount,
         tokensUsed,
+        creditsCharged: charged.featureCreditCost,
+        creditsRemaining: charged.reservation.balanceAfter,
       });
+      } catch (inner: any) {
+        await refundAiCredits({
+          requestId: charged.reservation.requestId,
+          userId,
+          reason: inner?.message || "ghost_writer_failed",
+        });
+        throw inner;
+      }
     } catch (error: any) {
       console.error("Ghost Writer generateChapter error:", error);
       return res.status(500).json({ error: error.message || "Failed to generate chapter." });
@@ -316,6 +397,17 @@ router.post(
         });
       }
 
+      const charged = await chargeAiCredits({
+        userId,
+        toolId: "ghost-writer",
+        operation: "generateScript",
+        inputChars: plot.length + String(previousContent || "").length,
+      });
+      if (!charged.ok) {
+        return res.status(charged.status).json(creditErrorBody(charged));
+      }
+
+      try {
       const autoContext = await buildProjectContext(userId, projectId || null);
       const continuity = [String(contextSummary || "").trim(), autoContext]
         .filter(Boolean)
@@ -394,12 +486,41 @@ Target length: roughly ${lengthPreset.min}-${lengthPreset.max} words (aim ~${len
         inputPreview: plot,
       });
 
+      void maybeNotifyAiComplete({
+        userId,
+        email: access.userData.email || req.user.email,
+        name: access.userData.displayName,
+        projectTitle: `Scene ${sceneNum} — ${scriptTitle}`,
+        wordCount,
+        mode: "script",
+      });
+
+      await finalizeAiCredits({
+        requestId: charged.reservation.requestId,
+        userId,
+        status: "success",
+        provider: "openai",
+        model: result.model,
+        promptTokens: result.usage?.prompt_tokens || 0,
+        completionTokens: result.usage?.completion_tokens || 0,
+      });
+
       return res.json({
         sessionId: session.id,
         generatedContent: result.content,
         wordCount,
         tokensUsed,
+        creditsCharged: charged.featureCreditCost,
+        creditsRemaining: charged.reservation.balanceAfter,
       });
+      } catch (inner: any) {
+        await refundAiCredits({
+          requestId: charged.reservation.requestId,
+          userId,
+          reason: inner?.message || "ghost_writer_script_failed",
+        });
+        throw inner;
+      }
     } catch (error: any) {
       console.error("Ghost Writer generateScript error:", error);
       return res.status(500).json({ error: error.message || "Failed to generate script." });

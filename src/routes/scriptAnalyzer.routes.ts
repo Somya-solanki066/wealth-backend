@@ -8,8 +8,13 @@ import {
   type ScriptIndustry,
 } from "../data/scriptAnalyzerPrompts";
 import { analyzeScript } from "../services/scriptAnalyzer.service";
-import { getPlanById, isUserPremium } from "../utils/plans";
-import { countWords, getAiUsageCount, recordAiUsage } from "../utils/aiUsage";
+import { countWords, recordAiUsage } from "../utils/aiUsage";
+import {
+  chargeAiCredits,
+  creditErrorBody,
+  finalizeAiCredits,
+  refundAiCredits,
+} from "../services/aiCredits.service";
 
 const router = express.Router();
 
@@ -19,30 +24,6 @@ const VALID_MODES = new Set<ScriptAnalysisMode>([
   "scene_analysis",
   "dialogue_punchup",
 ]);
-
-async function assertScriptAnalyzerAccess(userId: string): Promise<{ allowed: boolean; limitExceeded?: boolean }> {
-  const db = getFirestore();
-  const userSnap = await db.collection("users").doc(userId).get();
-  const userData = userSnap.data() || {};
-  const isPremium = isUserPremium(userData);
-
-  const planId = String(userData.subscriptionPlan || "");
-  const plan = planId ? await getPlanById(planId) : null;
-  const hasAnalyzer =
-    isPremium ||
-    plan?.unlimitedAnalyzer === true ||
-    plan?.ghostWriter === true;
-
-  if (hasAnalyzer) return { allowed: true };
-
-  const settingsSnap = await db.collection("settings").doc("global").get();
-  const freeLimit = Number(settingsSnap.data()?.aiAnalyzerFreeLimit ?? 3);
-  const usageCount = await getAiUsageCount(userId, "scriptAnalyzerCount");
-  if (usageCount >= freeLimit) {
-    return { allowed: false, limitExceeded: true };
-  }
-  return { allowed: true };
-}
 
 /** POST /api/script/analyze */
 router.post("/analyze", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
@@ -69,63 +50,85 @@ router.post("/analyze", verifyFirebaseToken, async (req: AuthenticatedRequest, r
       return res.status(400).json({ error: "Script text is required." });
     }
 
-    const access = await assertScriptAnalyzerAccess(req.user.uid);
-    if (!access.allowed) {
-      return res.status(403).json({
-        error: "Script Analyzer limit exceeded. Upgrade to premium for unlimited access.",
-        limitExceeded: true,
-      });
+    const charged = await chargeAiCredits({
+      userId: req.user.uid,
+      toolId: "script-analyzer",
+      inputChars: scriptText.length,
+    });
+    if (!charged.ok) {
+      return res.status(charged.status).json(creditErrorBody(charged));
     }
 
-    let projectName = "";
-    let chapterTitle = "";
-    if (projectId) {
-      const projectSnap = await getFirestore().collection("projects").doc(projectId).get();
-      if (projectSnap.exists && projectSnap.data()?.userId === req.user.uid) {
-        projectName = String(projectSnap.data()?.name || "");
-        if (chapterId) {
-          const chSnap = await projectSnap.ref.collection("chapters").doc(chapterId).get();
-          if (chSnap.exists) chapterTitle = String(chSnap.data()?.title || "");
+    try {
+      let projectName = "";
+      let chapterTitle = "";
+      if (projectId) {
+        const projectSnap = await getFirestore().collection("projects").doc(projectId).get();
+        if (projectSnap.exists && projectSnap.data()?.userId === req.user.uid) {
+          projectName = String(projectSnap.data()?.name || "");
+          if (chapterId) {
+            const chSnap = await projectSnap.ref.collection("chapters").doc(chapterId).get();
+            if (chSnap.exists) chapterTitle = String(chSnap.data()?.title || "");
+          }
         }
       }
+
+      const { result, analysisId, tokensUsed, model } = await analyzeScript({
+        userId: req.user.uid,
+        userEmail: req.user.email || null,
+        industry,
+        format,
+        analysisMode,
+        scriptText,
+        projectId: projectId || undefined,
+        chapterId: chapterId || undefined,
+        projectName,
+        chapterTitle,
+      });
+
+      await recordAiUsage({
+        userId: req.user.uid,
+        userEmail: req.user.email || null,
+        field: "scriptAnalyzerCount",
+        tool: "script-analyzer",
+        wordsAnalyzed: countWords(scriptText),
+        tokensUsed,
+        model,
+        projectId,
+        projectName,
+        chapterId,
+        chapterTitle,
+        platform: industry,
+        genre: format,
+        score: result.pitch_readiness_score,
+        inputPreview: scriptText.slice(0, 280),
+      });
+
+      await finalizeAiCredits({
+        requestId: charged.reservation.requestId,
+        userId: req.user.uid,
+        status: "success",
+        provider: "openai",
+        model,
+        promptTokens: 0,
+        completionTokens: 0,
+      });
+
+      return res.json({
+        success: true,
+        analysisId,
+        ...result,
+        creditsCharged: charged.featureCreditCost,
+        creditsRemaining: charged.reservation.balanceAfter,
+      });
+    } catch (inner: any) {
+      await refundAiCredits({
+        requestId: charged.reservation.requestId,
+        userId: req.user.uid,
+        reason: inner?.message || "script_analyze_failed",
+      });
+      throw inner;
     }
-
-    const { result, analysisId, tokensUsed, model } = await analyzeScript({
-      userId: req.user.uid,
-      userEmail: req.user.email || null,
-      industry,
-      format,
-      analysisMode,
-      scriptText,
-      projectId: projectId || undefined,
-      chapterId: chapterId || undefined,
-      projectName,
-      chapterTitle,
-    });
-
-    await recordAiUsage({
-      userId: req.user.uid,
-      userEmail: req.user.email || null,
-      field: "scriptAnalyzerCount",
-      tool: "script-analyzer",
-      wordsAnalyzed: countWords(scriptText),
-      tokensUsed,
-      model,
-      projectId,
-      projectName,
-      chapterId,
-      chapterTitle,
-      platform: industry,
-      genre: format,
-      score: result.pitch_readiness_score,
-      inputPreview: scriptText.slice(0, 280),
-    });
-
-    return res.json({
-      success: true,
-      analysisId,
-      ...result,
-    });
   } catch (error: any) {
     console.error("Script analyze error:", error);
     return res.status(500).json({ error: error.message || "Script analysis failed." });
