@@ -22,6 +22,8 @@ import {
   type ScriptIndustry,
 } from "../data/scriptAnalyzerPrompts";
 import { analyzeScript } from "../services/scriptAnalyzer.service";
+import { memoryImageUpload } from "../utils/multerImages";
+import { makeUploadFilename, persistPublicUpload } from "../utils/uploadStorage";
 
 const router = Router();
 
@@ -1034,6 +1036,12 @@ router.post("/wealth-jobs/:id/reject", async (req: Request, res: Response) => {
 });
 
 function mapOpenCall(id: string, data: Record<string, any>) {
+  const skills = Array.isArray(data.skills)
+    ? data.skills.map((s: unknown) => String(s).trim()).filter(Boolean)
+    : String(data.skills || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
   return {
     id,
     posterId: data.posterId || "",
@@ -1045,10 +1053,22 @@ function mapOpenCall(id: string, data: Record<string, any>) {
     targetMarket: data.targetMarket || "",
     description: data.description || "",
     requirements: data.requirements || "",
+    applyFormat: data.applyFormat || "",
+    experience: data.experience || "",
+    duration: data.duration || "",
+    payType: data.payType || "Fixed price",
     deadline: data.deadline || null,
     prize: data.prize || "",
     fee: data.fee || "",
+    budget: data.budget || data.prize || "",
+    location: data.location || "",
     locationType: data.locationType || "remote",
+    skills,
+    pinned: data.pinned === true,
+    verified: data.verified !== false,
+    clientRating: Number(data.clientRating) || 0,
+    clientJobs: Number(data.clientJobs) || 0,
+    clientSpent: data.clientSpent || "",
     status: data.status || "pending_review",
     rejectReason: data.rejectReason || null,
     pitchCount: data.pitchCount || 0,
@@ -1056,6 +1076,69 @@ function mapOpenCall(id: string, data: Record<string, any>) {
     updatedAt: data.updatedAt || null,
   };
 }
+
+/** POST /api/data/wealth-open-calls — admin creates a live listing */
+router.post("/wealth-open-calls", async (req: Request, res: Response) => {
+  try {
+    const body = req.body || {};
+    const title = String(body.title || "").trim();
+    const organization = String(body.organization || "").trim();
+    const description = String(body.description || "").trim();
+    if (!title) return res.status(400).json({ error: "Title is required." });
+    if (!organization) return res.status(400).json({ error: "Organization is required." });
+    if (description.length < 20) return res.status(400).json({ error: "Description is required." });
+
+    const now = new Date().toISOString();
+    const db = getFirestore();
+    const ref = db.collection("openCalls").doc();
+    const skills = Array.isArray(body.skills)
+      ? body.skills.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : String(body.skills || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+    const publishNow = body.status !== "pending_review";
+    const doc = {
+      posterId: "admin",
+      posterName: String(body.posterName || "Ink2Wealth Industry").trim(),
+      title,
+      organization,
+      callType: String(body.callType || "script_submission").trim(),
+      genre: String(body.genre || "").trim(),
+      targetMarket: String(body.targetMarket || "").trim(),
+      description,
+      requirements: String(body.requirements || body.applyFormat || "").trim(),
+      applyFormat: String(body.applyFormat || body.requirements || "").trim(),
+      experience: String(body.experience || "Intermediate").trim(),
+      duration: String(body.duration || "").trim(),
+      payType: String(body.payType || "Fixed price").trim(),
+      skills,
+      deadline: String(body.deadline || "").trim() || null,
+      prize: String(body.prize || body.budget || "").trim(),
+      fee: String(body.fee || "").trim(),
+      budget: String(body.budget || body.prize || "").trim(),
+      location: String(body.location || "").trim(),
+      locationType: ["remote", "onsite", "hybrid"].includes(String(body.locationType || ""))
+        ? String(body.locationType)
+        : "remote",
+      pinned: body.pinned === true,
+      verified: body.verified !== false,
+      clientRating: Number(body.clientRating) || 0,
+      clientJobs: Number(body.clientJobs) || 0,
+      clientSpent: String(body.clientSpent || "").trim(),
+      status: publishNow ? "active" : "pending_review",
+      rejectReason: null,
+      pitchCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await ref.set(doc);
+    return res.status(201).json({ success: true, data: mapOpenCall(ref.id, doc) });
+  } catch (error: any) {
+    console.error("Admin create open call error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 /** GET /api/data/wealth-open-calls */
 router.get("/wealth-open-calls", async (req: Request, res: Response) => {
@@ -1096,6 +1179,90 @@ router.post("/wealth-open-calls/:id/approve", async (req: Request, res: Response
     return res.json({ success: true, data: mapOpenCall(next.id, next.data()!) });
   } catch (error: any) {
     console.error("Approve open call error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** PUT /api/data/wealth-open-calls/:id — admin edits a listing */
+router.put("/wealth-open-calls/:id", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const ref = db.collection("openCalls").doc(String(req.params.id));
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Open call not found." });
+    const body = req.body || {};
+    const skills = Array.isArray(body.skills)
+      ? body.skills.map((s: unknown) => String(s).trim()).filter(Boolean)
+      : String(body.skills || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+    const nextStatus = String(body.status || snap.data()?.status || "pending_review").trim();
+    await ref.update({
+      title: String(body.title || snap.data()?.title || "").trim(),
+      organization: String(body.organization || snap.data()?.organization || "").trim(),
+      callType: String(body.callType || snap.data()?.callType || "script_submission").trim(),
+      genre: String(body.genre || snap.data()?.genre || "").trim(),
+      description: String(body.description || snap.data()?.description || "").trim(),
+      applyFormat: String(body.applyFormat || body.requirements || snap.data()?.applyFormat || "").trim(),
+      requirements: String(body.requirements || body.applyFormat || snap.data()?.requirements || "").trim(),
+      experience: String(body.experience || snap.data()?.experience || "").trim(),
+      duration: String(body.duration || snap.data()?.duration || "").trim(),
+      payType: String(body.payType || snap.data()?.payType || "Fixed price").trim(),
+      skills,
+      deadline: String(body.deadline || snap.data()?.deadline || "").trim() || null,
+      prize: String(body.prize || body.budget || snap.data()?.prize || "").trim(),
+      budget: String(body.budget || body.prize || snap.data()?.budget || "").trim(),
+      location: String(body.location || snap.data()?.location || "").trim(),
+      pinned: body.pinned === true,
+      verified: body.verified !== false,
+      clientRating: Number(body.clientRating ?? snap.data()?.clientRating) || 0,
+      clientJobs: Number(body.clientJobs ?? snap.data()?.clientJobs) || 0,
+      clientSpent: String(body.clientSpent ?? snap.data()?.clientSpent ?? "").trim(),
+      status: ["draft", "pending_review", "active", "rejected", "closed"].includes(nextStatus)
+        ? nextStatus
+        : snap.data()?.status || "pending_review",
+      updatedAt: new Date().toISOString(),
+    });
+    const next = await ref.get();
+    return res.json({ success: true, data: mapOpenCall(next.id, next.data()!) });
+  } catch (error: any) {
+    console.error("Update open call error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** POST /api/data/wealth-open-calls/:id/close */
+router.post("/wealth-open-calls/:id/close", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const ref = db.collection("openCalls").doc(String(req.params.id));
+    const doc = await ref.get();
+    if (!doc.exists) return res.status(404).json({ error: "Open call not found." });
+    const now = new Date().toISOString();
+    await ref.update({ status: "closed", updatedAt: now, closedAt: now });
+    const next = await ref.get();
+    return res.json({ success: true, data: mapOpenCall(next.id, next.data()!) });
+  } catch (error: any) {
+    console.error("Close open call error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/** GET /api/data/wealth-open-calls/:id/pitches */
+router.get("/wealth-open-calls/:id/pitches", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const snap = await db.collection("industryPitches").where("callId", "==", String(req.params.id)).get();
+    const pitches = snap.docs
+      .map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }))
+      .sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    return res.json({ success: true, data: pitches, total: pitches.length });
+  } catch (error: any) {
+    console.error("Admin open-call pitches error:", error);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -1285,6 +1452,113 @@ router.get("/short-film-reports", async (_req: Request, res: Response) => {
     const { adminListReports } = await import("../services/shortFilm.service");
     const reports = await adminListReports();
     return res.json({ success: true, data: reports });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/short-films/upload-thumbnail", memoryImageUpload.single("image"), async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file provided." });
+    }
+    const filename = makeUploadFilename("short-film-thumb", req.file.originalname);
+    const fileUrl = await persistPublicUpload(req, req.file, filename);
+    return res.json({ success: true, url: fileUrl });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/short-films", async (req: Request, res: Response) => {
+  try {
+    const { formatDuration } = await import("../data/shortFilmCatalog");
+    const db = getFirestore();
+    const data = req.body || {};
+    const title = String(data.title || "").trim();
+    if (!title) return res.status(400).json({ error: "Film title is required." });
+
+    const now = new Date().toISOString();
+    const durationSec = Number(data.durationSeconds || (data.durationMinutes ? Number(data.durationMinutes) * 60 : 600));
+    const ref = db.collection("shortFilms").doc();
+    const newDoc = {
+      creatorId: "admin",
+      creatorName: data.creatorName || "Ink2Wealth Studio",
+      title,
+      description: data.description || "",
+      genre: data.genre || "Drama",
+      language: data.language || "English",
+      contentRating: data.contentRating || "General",
+      director: data.director || "Admin",
+      writer: data.writer || "Admin",
+      cast: data.cast || "",
+      productionYear: data.productionYear || new Date().getFullYear(),
+      country: data.country || "Nigeria",
+      durationSeconds: durationSec,
+      durationLabel: data.durationLabel || formatDuration(durationSec),
+      thumbnailUrl: data.thumbnailUrl || "",
+      videoUrl: data.videoUrl || "",
+      externalVideoUrl: data.externalVideoUrl || data.videoUrl || "",
+      status: "published",
+      rejectReason: null,
+      views: 0,
+      likes: 0,
+      publishedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await ref.set(newDoc);
+    return res.json({ success: true, data: { id: ref.id, ...newDoc } });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/short-films/:id", async (req: Request, res: Response) => {
+  try {
+    const { formatDuration } = await import("../data/shortFilmCatalog");
+    const db = getFirestore();
+    const id = String(req.params.id);
+    const data = req.body || {};
+    const ref = db.collection("shortFilms").doc(id);
+    const existing = await ref.get();
+    if (!existing.exists) return res.status(404).json({ error: "Film not found." });
+
+    const update: Record<string, any> = { updatedAt: new Date().toISOString() };
+    if (data.title !== undefined) update.title = String(data.title).trim();
+    if (data.genre !== undefined) update.genre = String(data.genre);
+    if (data.description !== undefined) update.description = String(data.description);
+    if (data.thumbnailUrl !== undefined) update.thumbnailUrl = String(data.thumbnailUrl);
+    if (data.videoUrl !== undefined) {
+      update.videoUrl = String(data.videoUrl);
+      update.externalVideoUrl = String(data.videoUrl);
+    }
+    if (data.externalVideoUrl !== undefined) update.externalVideoUrl = String(data.externalVideoUrl);
+    if (data.director !== undefined) update.director = String(data.director);
+    if (data.writer !== undefined) update.writer = String(data.writer);
+    if (data.cast !== undefined) update.cast = String(data.cast);
+    if (data.durationSeconds !== undefined || data.durationMinutes !== undefined) {
+      const sec = Number(data.durationSeconds || Number(data.durationMinutes) * 60);
+      update.durationSeconds = sec;
+      update.durationLabel = formatDuration(sec);
+    }
+    if (data.durationLabel !== undefined) update.durationLabel = String(data.durationLabel);
+    if (data.status !== undefined) update.status = String(data.status);
+
+    await ref.set(update, { merge: true });
+    const saved = await ref.get();
+    return res.json({ success: true, data: { id, ...saved.data() } });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/short-films/:id", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const id = String(req.params.id);
+    await db.collection("shortFilms").doc(id).delete();
+    return res.json({ success: true, message: "Film deleted." });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

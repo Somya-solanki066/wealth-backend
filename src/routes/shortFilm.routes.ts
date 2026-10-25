@@ -67,9 +67,19 @@ async function creatorName(uid: string) {
 
 router.get("/meta", (_req, res) => res.json(getShortFilmMeta()));
 
-router.get("/films", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
+async function optionalToken(req: AuthenticatedRequest, _res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    try {
+      const decoded = await (await import("firebase-admin/auth")).getAuth().verifyIdToken(authHeader.split("Bearer ")[1]);
+      req.user = decoded;
+    } catch (_) {}
+  }
+  next();
+}
+
+router.get("/films", optionalToken, async (req: AuthenticatedRequest, res) => {
   try {
-    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
     let films = await listPublishedFilms({
       genre: req.query.genre ? String(req.query.genre) : undefined,
       search: req.query.search ? String(req.query.search) : undefined,

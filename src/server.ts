@@ -66,6 +66,9 @@ import wealthToolsRoutes from "./routes/wealthTools.routes";
 import emailTemplatesRoutes from "./routes/emailTemplates.routes";
 import emailRoutes from "./routes/email.routes";
 import cronRoutes from "./routes/cron.routes";
+import trendingSerialsRoutes from "./routes/trendingSerials.routes";
+import memberStoriesRoutes, { ensureSeedMemberStories } from "./routes/memberStories.routes";
+import aboutInk2wealthRoutes from "./routes/aboutInk2wealth.routes";
 import { getUploadsDir } from "./utils/paths";
 import { getAllowedCorsOrigins } from "./utils/envUrls";
 import { verifyAdmin } from "./middleware/admin.middleware";
@@ -259,6 +262,10 @@ app.use("/api/feedback", feedbackRoutes);
 app.use("/api/email-templates", emailTemplatesRoutes);
 app.use("/api/email", emailRoutes);
 app.use("/api/cron", cronRoutes);
+app.use("/api/trending-serials", trendingSerialsRoutes);
+app.use("/api/writer/trending-serials", trendingSerialsRoutes);
+app.use("/api/member-stories", memberStoriesRoutes);
+app.use("/api/about-ink2wealth", aboutInk2wealthRoutes);
 
 // Root route
 app.get("/", (req, res) => {
@@ -276,6 +283,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
+  ensureSeedMemberStories().catch((err) => console.error("Auto-seed member stories failed:", err));
 });
 
 export { firebaseAdminInitialized };

@@ -19,6 +19,66 @@ export type RoomType = "public" | "genre" | "feedback" | "mentorship";
 
 const DEFAULT_ROOMS = [
   {
+    id: "script-reading-room",
+    name: "Script reading room",
+    description: "Upload scripts others can read and comment on",
+    type: "public" as RoomType,
+    category: "General",
+    visibility: "public",
+    status: "active",
+    memberCount: 0,
+    onlineHint: 0,
+    sortOrder: 1,
+  },
+  {
+    id: "horror-room",
+    name: "Horror room",
+    description: "1,204 writers",
+    type: "genre" as RoomType,
+    category: "Horror",
+    visibility: "public",
+    status: "active",
+    memberCount: 1204,
+    onlineHint: 1204,
+    sortOrder: 2,
+  },
+  {
+    id: "romance-room",
+    name: "Romance room",
+    description: "2,310 writers",
+    type: "genre" as RoomType,
+    category: "Romance",
+    visibility: "public",
+    status: "active",
+    memberCount: 2310,
+    onlineHint: 2310,
+    sortOrder: 3,
+  },
+  {
+    id: "nollywood-room",
+    name: "Nollywood room",
+    description: "3,480 writers",
+    type: "genre" as RoomType,
+    category: "Nollywood",
+    visibility: "public",
+    status: "active",
+    memberCount: 3480,
+    onlineHint: 3480,
+    sortOrder: 4,
+  },
+  {
+    id: "hollywood-room",
+    name: "Hollywood room",
+    description: "1,950 writers",
+    type: "genre" as RoomType,
+    category: "Hollywood",
+    visibility: "public",
+    status: "active",
+    memberCount: 1950,
+    onlineHint: 1950,
+    sortOrder: 5,
+  },
+  {
     id: "public-reading-room",
     name: "Public Reading Room",
     description: "General discussion for screenwriters — openings, craft, wins, and questions.",
@@ -28,7 +88,7 @@ const DEFAULT_ROOMS = [
     status: "active",
     memberCount: 312,
     onlineHint: 312,
-    sortOrder: 1,
+    sortOrder: 6,
   },
   {
     id: "thriller-writers",
@@ -40,7 +100,7 @@ const DEFAULT_ROOMS = [
     status: "active",
     memberCount: 84,
     onlineHint: 84,
-    sortOrder: 2,
+    sortOrder: 7,
   },
   {
     id: "weekly-feedback",
@@ -52,7 +112,7 @@ const DEFAULT_ROOMS = [
     status: "active",
     memberCount: 0,
     onlineHint: 0,
-    sortOrder: 3,
+    sortOrder: 8,
   },
   {
     id: "mentorship-matching",
@@ -64,7 +124,7 @@ const DEFAULT_ROOMS = [
     status: "active",
     memberCount: 0,
     onlineHint: 0,
-    sortOrder: 4,
+    sortOrder: 9,
   },
 ];
 
@@ -605,9 +665,35 @@ export async function addFeedbackComment(opts: { userId: string; submissionId: s
 /** ——— Mentorship ——— */
 export async function ensureDemoMentors() {
   const db = getFirestore();
-  const snap = await db.collection(MENTORS).limit(1).get();
-  if (!snap.empty) return;
   const demos = [
+    {
+      id: "mentor-ngozi",
+      userId: "demo-mentor-ngozi",
+      name: "Mentor Ngozi",
+      title: "Nollywood drama",
+      bio: "Nollywood drama, 12 produced scripts",
+      genres: ["Drama", "Nollywood"],
+      focus: ["Story structure", "Character", "Industry"],
+      yearsExperience: 12,
+      slotsAvailable: 2,
+      languages: ["English"],
+      badge: "SSG badge",
+      status: "active",
+    },
+    {
+      id: "mentor-david",
+      userId: "demo-mentor-david",
+      name: "Mentor David",
+      title: "Thriller and crime",
+      bio: "Thriller and crime",
+      genres: ["Thriller", "Crime"],
+      focus: ["Dialogue", "Pitching", "Career"],
+      yearsExperience: 10,
+      slotsAvailable: 2,
+      languages: ["English"],
+      badge: "SSG badge",
+      status: "active",
+    },
     {
       id: "mentor-sarah",
       userId: "demo-mentor-sarah",
@@ -649,7 +735,11 @@ export async function ensureDemoMentors() {
     },
   ];
   for (const m of demos) {
-    await db.collection(MENTORS).doc(m.id).set({ ...m, createdAt: nowIso() });
+    const ref = db.collection(MENTORS).doc(m.id);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      await ref.set({ ...m, createdAt: nowIso() });
+    }
   }
 }
 

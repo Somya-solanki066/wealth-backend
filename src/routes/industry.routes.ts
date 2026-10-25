@@ -24,7 +24,13 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function mapCall(id: string, data: Record<string, any>) {
+function mapCall(id: string, data: Record<string, any>, extras: { saved?: boolean } = {}) {
+  const skills = Array.isArray(data.skills)
+    ? data.skills.map((s: unknown) => String(s).trim()).filter(Boolean)
+    : String(data.skills || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
   return {
     id,
     posterId: data.posterId || "",
@@ -36,15 +42,26 @@ function mapCall(id: string, data: Record<string, any>) {
     targetMarket: data.targetMarket || "",
     description: data.description || "",
     requirements: data.requirements || "",
+    applyFormat: data.applyFormat || data.requirements || "",
+    experience: data.experience || "",
+    duration: data.duration || "",
+    payType: data.payType || "Fixed price",
     deadline: data.deadline || null,
     prize: data.prize || "",
     fee: data.fee || "",
     budget: data.budget || data.prize || "",
     location: data.location || "",
     locationType: data.locationType || "remote",
+    skills,
+    pinned: data.pinned === true,
+    verified: data.verified !== false,
+    clientRating: Number(data.clientRating) || 0,
+    clientJobs: Number(data.clientJobs) || 0,
+    clientSpent: data.clientSpent || "",
     status: data.status || "pending_review",
     rejectReason: data.rejectReason || null,
     pitchCount: data.pitchCount || 0,
+    saved: extras.saved === true,
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null,
   };
@@ -63,6 +80,8 @@ function mapPitch(id: string, data: Record<string, any>) {
     portfolioUrl: data.portfolioUrl || "",
     sampleUrl: data.sampleUrl || "",
     experience: data.experience || "",
+    bidAmount: data.bidAmount || "",
+    deliveryTime: data.deliveryTime || "",
     status: data.status || "pending",
     createdAt: data.createdAt || null,
     updatedAt: data.updatedAt || null,
@@ -73,6 +92,21 @@ async function getUserProfile(uid: string) {
   const db = getFirestore();
   const snap = await db.collection("users").doc(uid).get();
   return snap.exists ? snap.data() || {} : {};
+}
+
+function parseSkills(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((s) => String(s).trim()).filter(Boolean).slice(0, 8);
+  return String(value || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+async function savedCallIds(uid: string): Promise<Set<string>> {
+  const db = getFirestore();
+  const snap = await db.collection("savedOpenCalls").where("userId", "==", uid).get();
+  return new Set(snap.docs.map((d) => String(d.data().callId || "")));
 }
 
 router.use(verifyFirebaseToken);
@@ -118,7 +152,8 @@ router.get("/industry", async (req: AuthenticatedRequest, res) => {
     if (!req.user) return res.status(401).json({ error: "Unauthorized." });
     const db = getFirestore();
     const snap = await db.collection("openCalls").where("status", "==", "active").get();
-    let calls = snap.docs.map((d) => mapCall(d.id, d.data()));
+    const saved = await savedCallIds(req.user.uid);
+    let calls = snap.docs.map((d) => mapCall(d.id, d.data(), { saved: saved.has(d.id) }));
 
     const search = String(req.query.search || "").trim().toLowerCase();
     const callType = String(req.query.callType || "").trim();
@@ -169,6 +204,11 @@ router.post("/industry", async (req: AuthenticatedRequest, res) => {
     const budget = String(body.budget || body.prize || "").trim();
     const location = String(body.location || "").trim();
     const locationType = String(body.locationType || "remote").trim();
+    const applyFormat = String(body.applyFormat || "").trim();
+    const experience = String(body.experience || "").trim();
+    const duration = String(body.duration || "").trim();
+    const payType = String(body.payType || "Fixed price").trim() || "Fixed price";
+    const skills = parseSkills(body.skills);
 
     if (!title) return res.status(400).json({ error: "Title is required." });
     if (!organization) return res.status(400).json({ error: "Organization is required." });
@@ -194,6 +234,11 @@ router.post("/industry", async (req: AuthenticatedRequest, res) => {
       targetMarket,
       description,
       requirements,
+      applyFormat,
+      experience,
+      duration,
+      payType,
+      skills,
       deadline,
       prize: prize || budget,
       fee,
@@ -237,55 +282,220 @@ router.post("/industry/seed-demo", async (req: AuthenticatedRequest, res) => {
     morning.setHours(7, 0, 0, 0);
     const samples = [
       {
-        title: "Feature Drama — Lead Writer Needed",
-        organization: "Kite Films",
-        callType: "commission",
+        title: "Feature drama seeks Nollywood screenwriter",
+        organization: "Nkem Pictures",
+        callType: "script_submission",
         genre: "Drama",
         targetMarket: "Nollywood",
         description:
-          "Looking for an experienced lead writer for a feature drama set in Lagos. Strong character work and authentic dialogue required. Full treatment and first act sample preferred.",
-        requirements: "Produced credits preferred. 90–110 page feature format.",
+          "A Lagos production company is developing a family drama and needs a screenwriter to take a treatment to a full first draft. You will work with the director every week.",
+        requirements: "Logline, 10 pages and a one-page synopsis.",
+        applyFormat: "Logline, 10 pages and a one-page synopsis",
+        experience: "Intermediate",
+        duration: "2 to 3 months",
+        payType: "Fixed price",
+        skills: ["Nollywood", "Drama", "Feature film", "Treatment"],
         deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30).toISOString().slice(0, 10),
         prize: "",
         fee: "",
-        budget: "₦2M–5M",
-        location: "Lagos",
+        budget: "₦5M to ₦20M",
+        location: "Lagos, Nigeria",
         locationType: "hybrid",
+        pinned: true,
+        verified: true,
+        clientRating: 4.9,
+        clientJobs: 18,
+        clientSpent: "₦42M",
         createdAt: morning.toISOString(),
       },
       {
-        title: "Thriller Series Bible — Writers Room",
-        organization: "Red Harbour TV",
-        callType: "collaboration",
+        title: "Ten-minute thriller short film",
+        organization: "Blue Door Films",
+        callType: "short_film",
         genre: "Thriller",
-        targetMarket: "Netflix Africa",
+        targetMarket: "Nollywood",
         description:
-          "Open call for writers to join a limited series room. Crime thriller with political undertones. Submit a one-page episode pitch plus a 5-page sample scene.",
-        requirements: "TV or feature sample required. Remote-friendly.",
+          "A first-time director needs a tight, atmospheric script for a night-set thriller shot in one location.",
+        requirements: "Logline and script PDF.",
+        applyFormat: "Logline and script PDF",
+        experience: "Entry level",
+        duration: "Under 1 month",
+        payType: "Fixed price",
+        skills: ["Thriller", "Short film", "One location"],
         deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 21).toISOString().slice(0, 10),
         prize: "",
         fee: "",
-        budget: "₦1.5M–3M",
-        location: "Remote",
-        locationType: "remote",
+        budget: "Under ₦2M",
+        location: "Abuja, Nigeria",
+        locationType: "onsite",
+        pinned: false,
+        verified: true,
+        clientRating: 4.6,
+        clientJobs: 4,
+        clientSpent: "₦3.1M",
         createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
       },
       {
-        title: "Comedy Short — Festival Circuit",
-        organization: "Laugh Track Studios",
-        callType: "short_film",
-        genre: "Comedy",
-        targetMarket: "Festivals",
+        title: "Audio drama series, 8 episodes",
+        organization: "Evergreen Audio",
+        callType: "collaboration",
+        genre: "Romance",
+        targetMarket: "Audio Drama",
         description:
-          "Seeking original comedy short scripts (8–12 pages) for a festival slate. Sharp dialogue, small cast, single-location preferred. Winner gets production slot.",
-        requirements: "Original unproduced short. PDF or Final Draft.",
+          "An international audio platform is commissioning a romance series. Weekly episodes of 12 minutes each, with a show bible.",
+        requirements: "Pilot script and series outline.",
+        applyFormat: "Pilot script and series outline",
+        experience: "Expert",
+        duration: "3 to 6 months",
+        payType: "Fixed price",
+        skills: ["Audio drama", "Romance", "Series bible"],
         deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 45).toISOString().slice(0, 10),
-        prize: "Production + ₦500k",
+        prize: "",
         fee: "",
-        budget: "₦800k–1.2M",
-        location: "Abuja",
-        locationType: "onsite",
-        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 28).toISOString(),
+        budget: "$1,500 to $4,000",
+        location: "London, UK",
+        locationType: "remote",
+        pinned: true,
+        verified: true,
+        clientRating: 4.8,
+        clientJobs: 31,
+        clientSpent: "$180K",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 20).toISOString(),
+      },
+      {
+        title: "TV pilot for a family comedy",
+        organization: "Sunlit Studios",
+        callType: "commission",
+        genre: "Comedy",
+        targetMarket: "Streaming",
+        description:
+          "A streaming-focused producer wants a half-hour pilot with a repeatable family set-up and strong ensemble voices.",
+        requirements: "Pitch deck and pilot script.",
+        applyFormat: "Pitch deck and pilot script",
+        experience: "Expert",
+        duration: "3 to 6 months",
+        payType: "Fixed price",
+        skills: ["Comedy", "TV pilot", "Ensemble"],
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 40).toISOString().slice(0, 10),
+        prize: "",
+        fee: "",
+        budget: "Not disclosed",
+        location: "Accra, Ghana",
+        locationType: "remote",
+        pinned: false,
+        verified: true,
+        clientRating: 4.7,
+        clientJobs: 12,
+        clientSpent: "₦28M",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 26).toISOString(),
+      },
+      {
+        title: "Hollywood indie thriller, polish and rewrite",
+        organization: "Northline Pictures",
+        callType: "script_submission",
+        genre: "Thriller",
+        targetMarket: "Hollywood",
+        description:
+          "A US indie team needs a dialogue polish and a stronger second act on an existing thriller script.",
+        requirements: "Query letter and logline.",
+        applyFormat: "Query letter and logline",
+        experience: "Expert",
+        duration: "1 to 3 months",
+        payType: "Fixed price",
+        skills: ["Hollywood", "Thriller", "Rewrite", "Dialogue"],
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 28).toISOString().slice(0, 10),
+        prize: "",
+        fee: "",
+        budget: "$250K to $1M budget",
+        location: "Atlanta, USA",
+        locationType: "remote",
+        pinned: false,
+        verified: true,
+        clientRating: 4.9,
+        clientJobs: 9,
+        clientSpent: "$62K",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
+      },
+      {
+        title: "Web series, 6 short episodes",
+        organization: "Campus Reel",
+        callType: "commission",
+        genre: "Comedy",
+        targetMarket: "Web",
+        description:
+          "A youth-focused web series about university life needs a writer for six five-minute episodes.",
+        requirements: "Logline and sample scene.",
+        applyFormat: "Logline and sample scene",
+        experience: "Intermediate",
+        duration: "1 to 3 months",
+        payType: "Fixed price",
+        skills: ["Web series", "Comedy", "Campus"],
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 18).toISOString().slice(0, 10),
+        prize: "",
+        fee: "",
+        budget: "₦800K to ₦2M",
+        location: "Enugu, Nigeria",
+        locationType: "remote",
+        pinned: false,
+        verified: false,
+        clientRating: 4.2,
+        clientJobs: 2,
+        clientSpent: "₦400K",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
+      },
+      {
+        title: "Adapt a bestselling novel into a feature script",
+        organization: "Harbour Films",
+        callType: "script_submission",
+        genre: "Drama",
+        targetMarket: "Nollywood",
+        description:
+          "Rights are secured. We need an adapter who understands the book's tone and can deliver a shooting draft.",
+        requirements: "Query letter and 10 pages.",
+        applyFormat: "Query letter and 10 pages",
+        experience: "Expert",
+        duration: "3 to 6 months",
+        payType: "Fixed price",
+        skills: ["Adaptation", "Drama", "Feature film"],
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 50).toISOString().slice(0, 10),
+        prize: "",
+        fee: "",
+        budget: "₦3M to ₦8M",
+        location: "Lagos, Nigeria",
+        locationType: "hybrid",
+        pinned: false,
+        verified: true,
+        clientRating: 5.0,
+        clientJobs: 6,
+        clientSpent: "₦19M",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 96).toISOString(),
+      },
+      {
+        title: "Documentary narration script",
+        organization: "Craft Lens",
+        callType: "short_film",
+        genre: "Documentary",
+        targetMarket: "Nollywood",
+        description:
+          "A 20-minute documentary about Nigerian crafts needs a warm, clear narration script.",
+        requirements: "Writing sample.",
+        applyFormat: "Writing sample",
+        experience: "Entry level",
+        duration: "Under 1 month",
+        payType: "Fixed price",
+        skills: ["Documentary", "Narration"],
+        deadline: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString().slice(0, 10),
+        prize: "",
+        fee: "",
+        budget: "₦300K to ₦700K",
+        location: "Kano, Nigeria",
+        locationType: "remote",
+        pinned: false,
+        verified: true,
+        clientRating: 4.5,
+        clientJobs: 3,
+        clientSpent: "₦900K",
+        createdAt: new Date(Date.now() - 1000 * 60 * 60 * 120).toISOString(),
       },
     ];
 
@@ -313,6 +523,68 @@ router.post("/industry/seed-demo", async (req: AuthenticatedRequest, res) => {
   }
 });
 
+/** GET /api/wealth/industry/saved */
+router.get("/industry/saved", async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const db = getFirestore();
+    const saved = await savedCallIds(req.user.uid);
+    if (saved.size === 0) return res.json({ calls: [] });
+    const snaps = await Promise.all(
+      [...saved].map((id) => db.collection("openCalls").doc(id).get())
+    );
+    const calls = snaps
+      .filter((snap) => snap.exists && snap.data()?.status === "active")
+      .map((snap) => mapCall(snap.id, snap.data()!, { saved: true }))
+      .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    return res.json({ calls });
+  } catch (error: any) {
+    console.error("Saved open calls error:", error);
+    return res.status(500).json({ error: error.message || "Failed to load saved jobs." });
+  }
+});
+
+/** POST /api/wealth/industry/:id/save */
+router.post("/industry/:id/save", async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const callId = String(req.params.id);
+    const db = getFirestore();
+    const callSnap = await db.collection("openCalls").doc(callId).get();
+    if (!callSnap.exists || callSnap.data()?.status !== "active") {
+      return res.status(404).json({ error: "Open call not found." });
+    }
+    const id = `${req.user.uid}_${callId}`;
+    await db.collection("savedOpenCalls").doc(id).set({
+      userId: req.user.uid,
+      callId,
+      createdAt: nowIso(),
+    });
+    return res.json({ saved: true, call: mapCall(callSnap.id, callSnap.data()!, { saved: true }) });
+  } catch (error: any) {
+    console.error("Save open call error:", error);
+    return res.status(500).json({ error: error.message || "Failed to save job." });
+  }
+});
+
+/** DELETE /api/wealth/industry/:id/save */
+router.delete("/industry/:id/save", async (req: AuthenticatedRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized." });
+    const callId = String(req.params.id);
+    const db = getFirestore();
+    await db.collection("savedOpenCalls").doc(`${req.user.uid}_${callId}`).delete();
+    const callSnap = await db.collection("openCalls").doc(callId).get();
+    return res.json({
+      saved: false,
+      call: callSnap.exists ? mapCall(callSnap.id, callSnap.data()!, { saved: false }) : { id: callId, saved: false },
+    });
+  } catch (error: any) {
+    console.error("Unsave open call error:", error);
+    return res.status(500).json({ error: error.message || "Failed to remove saved job." });
+  }
+});
+
 /** GET /api/wealth/industry/:id */
 router.get("/industry/:id", async (req: AuthenticatedRequest, res) => {
   try {
@@ -326,7 +598,8 @@ router.get("/industry/:id", async (req: AuthenticatedRequest, res) => {
     if (data.status !== "active" && !isOwner && !isAdmin) {
       return res.status(404).json({ error: "Open call not found." });
     }
-    return res.json({ call: mapCall(snap.id, data) });
+    const saved = (await savedCallIds(req.user.uid)).has(snap.id);
+    return res.json({ call: mapCall(snap.id, data, { saved }) });
   } catch (error: any) {
     console.error("Get open call error:", error);
     return res.status(500).json({ error: error.message || "Failed to load open call." });
@@ -400,6 +673,8 @@ router.post("/industry/:id/pitches", async (req: AuthenticatedRequest, res) => {
       portfolioUrl: String(req.body?.portfolioUrl || "").trim(),
       sampleUrl: String(req.body?.sampleUrl || "").trim(),
       experience: String(req.body?.experience || "").trim(),
+      bidAmount: String(req.body?.bidAmount || "").trim(),
+      deliveryTime: String(req.body?.deliveryTime || "").trim(),
       status: "pending",
       createdAt: now,
       updatedAt: now,

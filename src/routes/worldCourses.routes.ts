@@ -18,6 +18,44 @@ const router = express.Router();
 const upload = memoryImageUpload;
 const uploadThumbnail = memoryImageUpload;
 
+async function enrichWorldCourses(worldId: string, pageData: any) {
+  try {
+    const db = getFirestore();
+    const [ssgDoc, witwebDoc] = await Promise.all([
+      db.collection("landing_courses").doc("ssg").get(),
+      db.collection("landing_courses").doc("witweb").get(),
+    ]);
+    const ssgData = ssgDoc.exists ? (ssgDoc.data() as Record<string, any>) : null;
+    const witwebData = witwebDoc.exists ? (witwebDoc.data() as Record<string, any>) : null;
+
+    if (Array.isArray(pageData?.courses)) {
+      pageData.courses = pageData.courses.map((course: any) => {
+        const match = course.id === "ssg" ? ssgData : course.id === "witweb" ? witwebData : null;
+        if (!match) return course;
+        return {
+          ...course,
+          bannerImageUrl: course.bannerImageUrl || match.bannerImageUrl || "",
+          myStudentBannerImageUrl: course.myStudentBannerImageUrl || match.myStudentBannerImageUrl || "",
+          coachPhotoUrl: course.coachPhotoUrl || match.coachPhotoUrl || "",
+          bannerEmoji: course.bannerEmoji || match.bannerEmoji || "📖",
+          bannerGradient: course.bannerGradient || match.bannerGradient || "",
+        };
+      });
+
+      if (worldId === "screenwriter") {
+        const ssgIndex = pageData.courses.findIndex((c: any) => c.id === "ssg");
+        if (ssgIndex > 0) {
+          const ssgCourse = pageData.courses.splice(ssgIndex, 1)[0];
+          pageData.courses.unshift(ssgCourse);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Error enriching world courses:", e);
+  }
+  return pageData;
+}
+
 router.get("/", async (_req, res) => {
   try {
     const db = getFirestore();
@@ -26,10 +64,11 @@ router.get("/", async (_req, res) => {
     await Promise.all(
       WORLD_COURSE_IDS.map(async (worldId) => {
         const doc = await db.collection("world_courses").doc(worldId).get();
-        result[worldId] = mergeWorldCoursesPage(
+        const merged = mergeWorldCoursesPage(
           worldId,
           doc.exists ? (doc.data() as Record<string, unknown>) : undefined
         );
+        result[worldId] = await enrichWorldCourses(worldId, merged);
       })
     );
 
@@ -49,12 +88,12 @@ router.get("/:worldId", async (req, res) => {
 
     const db = getFirestore();
     const doc = await db.collection("world_courses").doc(worldId).get();
-    res.json({
-      data: mergeWorldCoursesPage(
-        worldId,
-        doc.exists ? (doc.data() as Record<string, unknown>) : undefined
-      ),
-    });
+    const merged = mergeWorldCoursesPage(
+      worldId,
+      doc.exists ? (doc.data() as Record<string, unknown>) : undefined
+    );
+    const data = await enrichWorldCourses(worldId, merged);
+    res.json({ data });
   } catch (error) {
     console.error("Error fetching world courses page:", error);
     res.status(500).json({ error: "Internal server error." });

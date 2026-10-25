@@ -17,7 +17,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "seed:plans": "ts-node --transpile-only src/scripts/seedPlans.ts"
+    "seed:plans": "ts-node --transpile-only src/scripts/seedPlans.ts",
+    "seed:stories": "ts-node --transpile-only src/scripts/seedMemberStories.ts"
   },
   "keywords": [],
   "author": "",

@@ -297,7 +297,6 @@ router.get("/study-plans", verifyFirebaseToken, async (req: AuthenticatedRequest
     const snap = await db
       .collection("studyPlans")
       .where("userId", "==", req.user.uid)
-      .orderBy("createdAt", "desc")
       .limit(50)
       .get();
 
@@ -317,6 +316,7 @@ router.get("/study-plans", verifyFirebaseToken, async (req: AuthenticatedRequest
         examDate: data.profile?.examDate || "",
       };
     });
+    plans.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 
     return res.json({ plans });
   } catch (error: any) {

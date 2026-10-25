@@ -18,6 +18,7 @@ import {
   getPublicCreditSummary,
   syncCreditsForPlanChange,
 } from "../services/aiCredits.service";
+import { normalizeOnboardingData } from "../utils/onboarding";
 
 const router = Router();
 const upload = memoryImageUpload;
@@ -155,6 +156,97 @@ router.get("/ai-credits", verifyFirebaseToken, async (req: AuthenticatedRequest,
   } catch (error: any) {
     console.error("ai-credits error:", error);
     return res.status(500).json({ error: error.message || "Failed to load AI credits" });
+  }
+});
+
+/** GET /api/user/script-stats — live screenwriter home counts */
+router.get("/script-stats", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const db = getFirestore();
+    const uid = req.user.uid;
+
+    const [projectSnap, pitchSnap, appSnap, purchaseSnap, listingSnap, reviewSnap] = await Promise.all([
+      db.collection("projects").where("userId", "==", uid).get(),
+      db.collection("industryPitches").where("applicantId", "==", uid).get(),
+      db.collection("jobApplications").where("applicantId", "==", uid).get(),
+      db.collection("marketplacePurchases").where("writerId", "==", uid).get(),
+      db.collection("marketplaceListings").where("writerId", "==", uid).get(),
+      db.collection("marketplaceReviews").where("writerId", "==", uid).get(),
+    ]);
+
+    const activeScripts = projectSnap.docs.filter(
+      (doc) => String(doc.data().type || "").toLowerCase() === "script"
+    ).length;
+
+    const screenwritingApps = appSnap.docs.filter((doc) => {
+      const category = String(doc.data().jobCategory || doc.data().category || "").toLowerCase();
+      return category === "screenwriting" || category === "script";
+    }).length;
+
+    let scriptsSold = purchaseSnap.size;
+    if (!scriptsSold) {
+      scriptsSold = listingSnap.docs.filter((doc) => {
+        const status = doc.data().status;
+        return status === "sold" || status === "optioned";
+      }).length;
+    }
+
+    const scores = reviewSnap.docs
+      .map((doc) => Number(doc.data()?.rating))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const rating = scores.length
+      ? Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10) / 10
+      : null;
+
+    return res.json({
+      activeScripts,
+      applications: pitchSnap.size + screenwritingApps,
+      scriptsSold,
+      rating,
+    });
+  } catch (err: any) {
+    console.error("Error in GET /user/script-stats:", err);
+    return res.status(500).json({ error: err.message || "Failed to load script stats." });
+  }
+});
+
+/** GET /api/user/writer-stats — live writer home counts */
+router.get("/writer-stats", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const db = getFirestore();
+    const uid = req.user.uid;
+
+    const [projectSnap, appSnap, logSnap] = await Promise.all([
+      db.collection("projects").where("userId", "==", uid).get(),
+      db.collection("jobApplications").where("applicantId", "==", uid).get(),
+      db.collection("ai_usage_logs").where("userId", "==", uid).get(),
+    ]);
+
+    const novels = projectSnap.docs.filter((doc) => {
+      const type = String(doc.data().type || "novel").toLowerCase();
+      return type !== "script";
+    });
+    const totalWords = novels.reduce((sum, doc) => sum + Number(doc.data().wordCount || 0), 0);
+    const contracts = appSnap.docs.filter((doc) => doc.data().status === "accepted").length;
+    const scores = logSnap.docs
+      .map((doc) => doc.data())
+      .filter((row) => row.tool === "chapter-analyzer" && typeof row.score === "number")
+      .map((row) => Number(row.score));
+    const avgScore = scores.length
+      ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+      : null;
+
+    return res.json({
+      activeProjects: novels.length,
+      totalWords,
+      contracts,
+      avgScore,
+    });
+  } catch (err: any) {
+    console.error("Error in GET /user/writer-stats:", err);
+    return res.status(500).json({ error: err.message || "Failed to load writer stats." });
   }
 });
 
@@ -360,6 +452,11 @@ router.put("/onboarding", verifyFirebaseToken, async (req: AuthenticatedRequest,
       return res.status(400).json({ error: "data must be an object" });
     }
 
+    const normalized = normalizeOnboardingData(world, data ?? {}, complete);
+    if (normalized.error) {
+      return res.status(400).json({ error: normalized.error });
+    }
+
     const db = getFirestore();
     const userRef = db.collection("users").doc(req.user.uid);
     const snap = await userRef.get();
@@ -373,9 +470,10 @@ router.put("/onboarding", verifyFirebaseToken, async (req: AuthenticatedRequest,
         ? { ...(prev.onboarding as Record<string, unknown>) }
         : {};
 
+    // Merge so partial step saves keep earlier answers; normalized keys overwrite
     const nextOnboarding = {
       ...prevOnboarding,
-      ...(data && typeof data === "object" ? data : {}),
+      ...normalized.data,
     };
 
     const patch: Record<string, unknown> = {
@@ -636,6 +734,48 @@ router.post("/request-password-reset", async (req, res: Response) => {
   } catch (error: any) {
     console.error("request-password-reset error:", error);
     return res.status(500).json({ error: "Failed to process password reset request" });
+  }
+});
+
+/** PUT /api/user/profile — same display name on the website and the app */
+router.put("/profile", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const displayName = String(req.body?.displayName || "").trim();
+    if (!displayName || displayName.length > 80) {
+      return res.status(400).json({ error: "Display name is required (max 80 characters)." });
+    }
+
+    await getAuth().updateUser(req.user.uid, { displayName });
+    const db = getFirestore();
+    const userRef = db.collection("users").doc(req.user.uid);
+    await userRef.set(
+      { displayName, updatedAt: new Date().toISOString() },
+      { merge: true }
+    );
+    const snap = await userRef.get();
+    return res.json(snap.data() || { displayName });
+  } catch (err: any) {
+    console.error("Error in PUT /user/profile:", err);
+    return res.status(500).json({ error: err.message || "Failed to update profile." });
+  }
+});
+
+/** DELETE /api/user/account — remove the signed-in Firebase user and profile */
+router.delete("/account", verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+    const uid = req.user.uid;
+    try {
+      await getAuth().deleteUser(uid);
+    } catch (err: any) {
+      if (err?.code !== "auth/user-not-found") throw err;
+    }
+    await getFirestore().collection("users").doc(uid).delete();
+    return res.json({ success: true, message: "Account deleted." });
+  } catch (err: any) {
+    console.error("Error in DELETE /user/account:", err);
+    return res.status(500).json({ error: err.message || "Failed to delete account." });
   }
 });
 
