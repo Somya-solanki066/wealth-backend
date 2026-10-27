@@ -1398,6 +1398,64 @@ router.post("/writing-vault/seed", async (req: Request, res: Response) => {
   }
 });
 
+// ——— Writing Vault Hub Sections (Sparks, Contests, Motion, Games, Config) ———
+router.get("/writing-vault/hub/:section", async (req: Request, res: Response) => {
+  try {
+    const { adminGetVaultSection } = await import("../services/writingVaultHub.service");
+    const data = await adminGetVaultSection(String(req.params.section));
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.post("/writing-vault/hub/:section", async (req: Request, res: Response) => {
+  try {
+    const { adminUpsertVaultItem } = await import("../services/writingVaultHub.service");
+    const adminId = (req as any).admin?.id || (req as any).admin?.email || "admin";
+    const result = await adminUpsertVaultItem(String(req.params.section), req.body || {}, undefined, String(adminId));
+    return res.status(201).json({ success: true, data: result });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.put("/writing-vault/hub/:section/:id", async (req: Request, res: Response) => {
+  try {
+    const { adminUpsertVaultItem } = await import("../services/writingVaultHub.service");
+    const adminId = (req as any).admin?.id || (req as any).admin?.email || "admin";
+    const result = await adminUpsertVaultItem(String(req.params.section), req.body || {}, String(req.params.id), String(adminId));
+    return res.json({ success: true, data: result });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.delete("/writing-vault/hub/:section/:id", async (req: Request, res: Response) => {
+  try {
+    const { adminDeleteVaultItem } = await import("../services/writingVaultHub.service");
+    await adminDeleteVaultItem(String(req.params.section), String(req.params.id));
+    return res.json({ success: true });
+  } catch (error: any) {
+    const status = error?.status || 500;
+    return res.status(status).json({ error: error.message });
+  }
+});
+
+router.post("/writing-vault/hub/seed", async (req: Request, res: Response) => {
+  try {
+    const { adminSeedAllHubDefaults } = await import("../services/writingVaultHub.service");
+    const adminId = (req as any).admin?.id || (req as any).admin?.email || "admin";
+    const result = await adminSeedAllHubDefaults(String(adminId));
+    return res.json({ success: true, ...result });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // ——— Short Film Showcase ———
 router.get("/short-films", async (req: Request, res: Response) => {
   try {
@@ -1892,6 +1950,106 @@ router.put("/wallet-royalties/settings", async (req: Request, res: Response) => 
     return res.json({ success: true, data: { settings } });
   } catch (error: any) {
     return res.status(error?.status || 500).json({ error: error.message });
+  }
+});
+
+// ——— Student Subject Hubs Management ———
+router.get("/subject-hubs", async (_req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const snap = await db.collection("subjectHubs").get();
+    if (snap.empty) {
+      const { DEFAULT_SUBJECT_HUBS, seedDefaultSubjectHubs } = await import("../services/subjectHub.service");
+      await seedDefaultSubjectHubs();
+      const afterSnap = await db.collection("subjectHubs").get();
+      const list = afterSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      return res.json({ success: true, data: list });
+    }
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    list.sort((a: any, b: any) => (a.order ?? 99) - (b.order ?? 99));
+    return res.json({ success: true, data: list });
+  } catch (error: any) {
+    console.error("Admin get subject-hubs error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/subject-hubs", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const b = req.body || {};
+    const now = new Date().toISOString();
+    const docRef = db.collection("subjectHubs").doc();
+    const newDoc = {
+      title: String(b.title || "Untitled Subject").trim(),
+      subtitle: String(b.subtitle || "").trim(),
+      category: String(b.category || "General").trim(),
+      imageUrl: String(b.imageUrl || "").trim(),
+      description: String(b.description || "").trim(),
+      featured: b.featured !== false,
+      order: Number(b.order) || 99,
+      status: b.status === "draft" ? "draft" : "active",
+      modules: Array.isArray(b.modules) ? b.modules : [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await docRef.set(newDoc);
+    return res.json({ success: true, data: { id: docRef.id, ...newDoc } });
+  } catch (error: any) {
+    console.error("Admin create subject-hub error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/subject-hubs/:id", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const ref = db.collection("subjectHubs").doc(String(req.params.id));
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Subject hub not found." });
+    const b = req.body || {};
+    const now = new Date().toISOString();
+    const updated = {
+      title: b.title !== undefined ? String(b.title).trim() : snap.data()?.title,
+      subtitle: b.subtitle !== undefined ? String(b.subtitle).trim() : snap.data()?.subtitle,
+      category: b.category !== undefined ? String(b.category).trim() : snap.data()?.category,
+      imageUrl: b.imageUrl !== undefined ? String(b.imageUrl).trim() : snap.data()?.imageUrl,
+      description: b.description !== undefined ? String(b.description).trim() : snap.data()?.description,
+      featured: b.featured !== undefined ? Boolean(b.featured) : (snap.data()?.featured ?? true),
+      order: b.order !== undefined ? Number(b.order) : (snap.data()?.order ?? 99),
+      status: b.status !== undefined ? (b.status === "draft" ? "draft" : "active") : (snap.data()?.status || "active"),
+      modules: Array.isArray(b.modules) ? b.modules : (snap.data()?.modules || []),
+      updatedAt: now,
+    };
+    await ref.update(updated);
+    const next = await ref.get();
+    return res.json({ success: true, data: { id: next.id, ...next.data() } });
+  } catch (error: any) {
+    console.error("Admin update subject-hub error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/subject-hubs/:id", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const ref = db.collection("subjectHubs").doc(String(req.params.id));
+    await ref.delete();
+    return res.json({ success: true, message: "Subject hub deleted successfully." });
+  } catch (error: any) {
+    console.error("Admin delete subject-hub error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/subject-hubs/seed", async (_req: Request, res: Response) => {
+  try {
+    const { seedDefaultSubjectHubs } = await import("../services/subjectHub.service");
+    await seedDefaultSubjectHubs();
+    return res.json({ success: true, message: "Default subject hubs seeded successfully." });
+  } catch (error: any) {
+    console.error("Seed subject hubs error:", error);
+    return res.status(500).json({ error: error.message });
   }
 });
 

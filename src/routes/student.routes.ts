@@ -980,4 +980,39 @@ ${instructions || "(none)"}`
   }
 });
 
+/**
+ * GET /api/student/subject-hubs
+ * List active subject hubs
+ */
+router.get("/subject-hubs", async (req, res) => {
+  try {
+    const { getSubjectHubs } = await import("../services/subjectHub.service");
+    const featured = req.query.featured === "true";
+    const category = req.query.category ? String(req.query.category) : undefined;
+    const hubs = await getSubjectHubs(featured, category);
+    return res.json({ success: true, data: hubs });
+  } catch (error: any) {
+    console.error("Get subject hubs error:", error);
+    return res.status(500).json({ error: error.message || "Failed to load subject hubs." });
+  }
+});
+
+/**
+ * GET /api/student/subject-hubs/:id
+ * Get single subject hub with full modules, videos, notes & practice
+ */
+router.get("/subject-hubs/:id", async (req, res) => {
+  try {
+    const { getSubjectHubById } = await import("../services/subjectHub.service");
+    const hub = await getSubjectHubById(req.params.id);
+    if (!hub) {
+      return res.status(404).json({ error: "Subject hub not found." });
+    }
+    return res.json({ success: true, data: hub });
+  } catch (error: any) {
+    console.error("Get subject hub by id error:", error);
+    return res.status(500).json({ error: error.message || "Failed to load subject hub." });
+  }
+});
+
 export default router;

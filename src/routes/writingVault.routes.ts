@@ -17,6 +17,16 @@ router.get("/writing-vault/meta", (_req, res) => {
   return res.json(getVaultMeta());
 });
 
+router.get("/writing-vault/hub", async (_req, res) => {
+  try {
+    const { getWritingVaultHubData } = await import("../services/writingVaultHub.service");
+    const data = await getWritingVaultHubData();
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || "Failed to load hub data." });
+  }
+});
+
 router.post("/writing-vault/prompt", verifyFirebaseToken, async (req: AuthenticatedRequest, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "Unauthorized." });
