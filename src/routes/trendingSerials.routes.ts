@@ -1,6 +1,8 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
+import multer from "multer";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { verifyAdmin } from "../middleware/admin.middleware";
 import { memoryImageUpload } from "../utils/multerImages";
@@ -834,6 +836,249 @@ router.post("/seed", verifyAdmin, async (req, res) => {
   } catch (error) {
     console.error("Seeder error:", error);
     res.status(500).json({ error: "Failed to run serials seeder" });
+  }
+});
+
+// Document upload filter for manuscripts
+const docFilter: multer.Options["fileFilter"] = (_req, file, cb) => {
+  const allowed = /\.(pdf|doc|docx)$/i;
+  if (allowed.test(file.originalname)) {
+    cb(null, true);
+  } else {
+    cb(new Error("Only DOC, DOCX, and PDF document files are allowed."));
+  }
+};
+
+const memoryDocUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 },
+  fileFilter: docFilter,
+});
+
+// Optional token extractor for user submissions
+const optionalAuth = async (req: any, _res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    try {
+      const token = authHeader.split("Bearer ")[1];
+      const decoded = await getAuth().verifyIdToken(token);
+      req.user = decoded;
+    } catch (_) {}
+  }
+  next();
+};
+
+// POST /api/trending-serials/upload-manuscript - Public/user manuscript file upload
+router.post("/upload-manuscript", optionalAuth, memoryDocUpload.single("manuscript"), async (req: any, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No manuscript document file provided" });
+    }
+    const filename = makeUploadFilename("manuscript", req.file.originalname);
+    const fileUrl = await persistPublicUpload(req, req.file, filename);
+    res.json({ success: true, url: fileUrl, filename: req.file.originalname });
+  } catch (error: any) {
+    console.error("Error uploading manuscript:", error);
+    res.status(500).json({ error: error.message || "Failed to upload manuscript" });
+  }
+});
+
+// POST /api/trending-serials/upload-cover-public - Public/user cover image upload
+router.post("/upload-cover-public", optionalAuth, memoryImageUpload.single("cover"), async (req: any, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file provided" });
+    }
+    const filename = makeUploadFilename("trending-cover", req.file.originalname);
+    const fileUrl = await persistPublicUpload(req, req.file, filename);
+    res.json({ success: true, url: fileUrl, filename: req.file.originalname });
+  } catch (error: any) {
+    console.error("Error uploading cover:", error);
+    res.status(500).json({ error: error.message || "Failed to upload cover image" });
+  }
+});
+
+// POST /api/trending-serials/submissions - Submit book for trending serials review
+router.post("/submissions", optionalAuth, async (req: any, res) => {
+  try {
+    const {
+      actionType,
+      type,
+      title,
+      genre,
+      manuscriptUrl,
+      manuscriptFilename,
+      coverUrl,
+      synopsis,
+      penName,
+      wordCount,
+      rightsConfirmed,
+    } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: "Book title is required" });
+    }
+    if (!synopsis || !synopsis.trim()) {
+      return res.status(400).json({ error: "Synopsis is required" });
+    }
+    if (!penName || !penName.trim()) {
+      return res.status(400).json({ error: "Pen name is required" });
+    }
+    if (!rightsConfirmed) {
+      return res.status(400).json({ error: "You must confirm that you own the rights to this work" });
+    }
+
+    const subData = {
+      userId: req.user?.uid || req.body.userId || "anonymous",
+      userEmail: req.user?.email || req.body.userEmail || "",
+      actionType: actionType || "featured",
+      type: type || "Completed novel",
+      title: title.trim(),
+      genre: genre || "Werewolf",
+      manuscriptUrl: manuscriptUrl || "",
+      manuscriptFilename: manuscriptFilename || "",
+      coverUrl: coverUrl || "",
+      synopsis: synopsis.trim(),
+      penName: penName.trim(),
+      wordCount: wordCount ? String(wordCount).trim() : "",
+      rightsConfirmed: true,
+      status: "pending",
+      adminNotes: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const docRef = await getFirestore().collection("trending_submissions").add(subData);
+    res.status(201).json({
+      success: true,
+      message: "Submission received successfully",
+      id: docRef.id,
+      data: { id: docRef.id, ...subData },
+    });
+  } catch (error: any) {
+    console.error("Error saving submission:", error);
+    res.status(500).json({ error: "Failed to submit book: " + error.message });
+  }
+});
+
+// GET /api/trending-serials/my-submissions - Get user's own submissions
+router.get("/my-submissions", optionalAuth, async (req: any, res) => {
+  try {
+    const userId = req.user?.uid || (req.query.userId as string);
+    if (!userId) {
+      return res.json({ success: true, data: [] });
+    }
+    const snapshot = await getFirestore()
+      .collection("trending_submissions")
+      .where("userId", "==", userId)
+      .get();
+
+    const submissions = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    submissions.sort((a: any, b: any) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+
+    res.json({ success: true, data: submissions });
+  } catch (error: any) {
+    console.error("Error fetching user submissions:", error);
+    res.status(500).json({ error: "Failed to fetch submissions" });
+  }
+});
+
+// GET /api/trending-serials/admin/submissions - Get all submissions for admin review
+router.get("/admin/submissions", verifyAdmin, async (_req, res) => {
+  try {
+    const snapshot = await getFirestore().collection("trending_submissions").get();
+    const submissions = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+    submissions.sort((a: any, b: any) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    res.json({ success: true, data: submissions });
+  } catch (error: any) {
+    console.error("Error fetching admin submissions:", error);
+    res.status(500).json({ error: "Failed to fetch submissions queue" });
+  }
+});
+
+// POST /api/trending-serials/admin/submissions/:id/action - Approve, Feature, or Reject
+router.post("/admin/submissions/:id/action", verifyAdmin, async (req, res) => {
+  try {
+    const id = String(req.params.id);
+    const { action, notes } = req.body;
+
+    if (!["approve", "feature", "reject"].includes(action)) {
+      return res.status(400).json({ error: "Invalid action. Must be approve, feature, or reject." });
+    }
+
+    const docRef = getFirestore().collection("trending_submissions").doc(id);
+    const snap = await docRef.get();
+    if (!snap.exists) {
+      return res.status(404).json({ error: "Submission not found" });
+    }
+
+    const sub = snap.data() || {};
+    const newStatus = action === "reject" ? "rejected" : (action === "feature" ? "featured" : "approved");
+
+    let createdSerialId = null;
+    if (action === "feature") {
+      const serialDoc: Omit<TrendingSerial, "id"> = {
+        title: sub.title || "Untitled Submission",
+        sub: sub.genre ? `${sub.genre} romance` : "Trending romance",
+        category: sub.genre || "Fiction",
+        author: sub.penName || "Featured Author",
+        tagline: sub.synopsis ? (sub.synopsis.slice(0, 110) + (sub.synopsis.length > 110 ? "..." : "")) : "Featured in Trending Serials.",
+        tags: [sub.genre || "Trending", sub.type || "Novel"].filter(Boolean),
+        rating: "4.9",
+        chaptersTotal: 1,
+        reads: 100,
+        likes: 12,
+        shares: 4,
+        commentsCount: 0,
+        status: sub.type === "Completed novel" ? "Completed" : "Ongoing",
+        blurb: sub.synopsis || "",
+        img: "",
+        coverUrl: sub.coverUrl || "",
+        chapters: [
+          {
+            id: `chap-${Date.now()}`,
+            index: 1,
+            title: "Prologue / Overview",
+            readTime: "4 min read",
+            content: `${sub.title}\nBy ${sub.penName}\n\n${sub.synopsis}\n\n${sub.manuscriptUrl ? `[Full Manuscript Document: ${sub.manuscriptUrl}]` : ""}`,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        order: 0,
+      };
+
+      const serialRef = await getFirestore().collection("trending_serials").add(serialDoc);
+      createdSerialId = serialRef.id;
+    }
+
+    await docRef.update({
+      status: newStatus,
+      adminNotes: notes || sub.adminNotes || "",
+      featuredSerialId: createdSerialId || sub.featuredSerialId || null,
+      updatedAt: new Date().toISOString(),
+    });
+
+    res.json({
+      success: true,
+      message: `Submission marked as ${newStatus}`,
+      status: newStatus,
+      serialId: createdSerialId,
+    });
+  } catch (error: any) {
+    console.error("Error updating submission action:", error);
+    res.status(500).json({ error: "Failed to process action: " + error.message });
   }
 });
 

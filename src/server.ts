@@ -51,6 +51,9 @@ import screenwriterPortfolioRoutes, {
   publicScreenwriterPortfolioRouter,
 } from "./routes/screenwriterPortfolio.routes";
 import studentRoutes from "./routes/student.routes";
+import medicalCommunityRoutes from "./routes/medicalCommunity.routes";
+import surgicalEducationRoutes from "./routes/surgicalEducation.routes";
+import globalOpportunitiesRoutes from "./routes/globalOpportunities.routes";
 import jambRoutes from "./routes/jamb.routes";
 import universityPastRoutes from "./routes/universityPast.routes";
 import nursingRoutes from "./routes/nursing.routes";
@@ -69,6 +72,7 @@ import cronRoutes from "./routes/cron.routes";
 import trendingSerialsRoutes from "./routes/trendingSerials.routes";
 import memberStoriesRoutes, { ensureSeedMemberStories } from "./routes/memberStories.routes";
 import aboutInk2wealthRoutes from "./routes/aboutInk2wealth.routes";
+import benefitProgramRoutes from "./routes/benefitProgram.routes";
 import { getUploadsDir } from "./utils/paths";
 import { getAllowedCorsOrigins } from "./utils/envUrls";
 import { verifyAdmin } from "./middleware/admin.middleware";
@@ -238,6 +242,12 @@ app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/community", communityRoutes);
 app.use("/api/pitch-builder", pitchBuilderRoutes);
 app.use("/api/student", studentRoutes);
+app.use("/api/student/medical", medicalCommunityRoutes);
+app.use("/api/student/medical-communities", medicalCommunityRoutes);
+app.use("/api/student/surgery", surgicalEducationRoutes);
+app.use("/api/student/surgical-education", surgicalEducationRoutes);
+app.use("/api/student/opportunities", globalOpportunitiesRoutes);
+app.use("/api/student/global-opportunities", globalOpportunitiesRoutes);
 app.use("/api/student/jamb", jambRoutes);
 app.use("/api/student/university-past", universityPastRoutes);
 app.use("/api/student/nursing", nursingRoutes);
@@ -266,6 +276,8 @@ app.use("/api/trending-serials", trendingSerialsRoutes);
 app.use("/api/writer/trending-serials", trendingSerialsRoutes);
 app.use("/api/member-stories", memberStoriesRoutes);
 app.use("/api/about-ink2wealth", aboutInk2wealthRoutes);
+app.use("/api/contracts", benefitProgramRoutes);
+app.use("/api/benefit-program", benefitProgramRoutes);
 
 // Root route
 app.get("/", (req, res) => {
