@@ -1,6 +1,7 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { DEFAULT_ANALYZER_PROMPTS } from "./analyzerPrompts";
 import { DEFAULT_SMART_EDIT_PROMPT } from "./smartEditPrompt";
+import { WRITER_GENRES } from "./onboarding";
 
 export type CatalogItem = { id: string; name: string; enabled: boolean };
 
@@ -23,18 +24,7 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
     "Stary",
     "NovelSnack",
   ].map((name) => ({ id: name, name, enabled: true })),
-  genres: [
-    "Romance",
-    "Werewolf",
-    "Vampire",
-    "Billionaire",
-    "Urban Fiction",
-    "Fantasy",
-    "Urban",
-    "Thriller",
-    "Sci-Fi",
-    "Adventure",
-  ].map((name) => ({ id: name, name, enabled: true })),
+  genres: WRITER_GENRES.map((name) => ({ id: name, name, enabled: true })),
 };
 
 function normalizeItems(raw: any[], fallback: CatalogItem[]): CatalogItem[] {

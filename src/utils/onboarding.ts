@@ -14,14 +14,37 @@ export const WRITER_PLATFORMS = [
 
 export const WRITER_GENRES = [
   "Werewolf",
-  "Mafia",
-  "Billionaire",
-  "Revenge",
-  "Romance",
   "Vampire",
+  "Mafia",
+  "Mafia Romance",
+  "Billionaire",
+  "Romance",
+  "Dark Romance",
+  "Paranormal Romance",
+  "Young Adult Romance",
+  "Romantic Suspense",
+  "Royal Romance",
+  "Regency/Victorian Romance",
+  "Ancient Chinese Romance",
+  "Palace/Imperial Drama",
+  "Historical Romance",
+  "Historical Fiction",
+  "Historical Fantasy",
   "Fantasy",
+  "Urban Fantasy",
   "Urban Fiction",
+  "Rebirth/Reincarnation",
+  "Transmigration/Time Travel",
+  "Martial Arts/Wuxia",
+  "Cultivation/Xianxia",
+  "Revenge",
+  "Revenge Drama",
+  "Family Drama",
+  "Mystery/Crime",
   "Thriller",
+  "Horror",
+  "Science Fiction",
+  "Action/Adventure",
 ] as const;
 
 export const WRITER_JOURNEY_LEVELS = [
@@ -117,6 +140,31 @@ function pickAllowed(values: string[], allowed: readonly string[]): string[] {
   return out;
 }
 
+function sanitizeCustomGenre(value: string): string | null {
+  const trimmed = value.trim().replace(/\s+/g, " ");
+  if (!trimmed) return null;
+  if (/^other$/i.test(trimmed)) return null;
+  if (trimmed.length > 48) return trimmed.slice(0, 48).trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9 /'&+.\-]*$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+/** Canonical writer genres plus custom “Other” entries. */
+function pickWriterGenres(values: string[]): string[] {
+  const allow = new Map(WRITER_GENRES.map((a) => [a.toLowerCase(), a]));
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of values) {
+    const canonical = allow.get(v.toLowerCase()) ?? sanitizeCustomGenre(v);
+    if (!canonical) continue;
+    const key = canonical.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(canonical);
+  }
+  return out.slice(0, 12);
+}
+
 function pickOne(value: unknown, allowed: readonly string[]): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -143,10 +191,7 @@ export function normalizeOnboardingData(
 
   if (world === "writer") {
     const platforms = pickAllowed(asStringList(input.platforms), WRITER_PLATFORMS);
-    const genres = pickAllowed(
-      asStringList(input.genres ?? input.favoriteGenres),
-      WRITER_GENRES
-    );
+    const genres = pickWriterGenres(asStringList(input.genres ?? input.favoriteGenres));
     const writingLevel =
       pickOne(input.writingLevel ?? input.journeyStatus, WRITER_JOURNEY_LEVELS) ??
       null;
