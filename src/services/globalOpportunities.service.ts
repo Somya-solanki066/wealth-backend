@@ -86,7 +86,7 @@ const DEFAULT_OPPORTUNITIES: GlobalOpportunity[] = [
     eligibility: "Writers aged 18 to 30 with an unpublished short story or academic essay on youth socio-economic development.",
     verified: "Verified listing",
     officialUrl: "https://ink2wealth.com/awards/young-writers",
-    fundingAmount: "₦1,500,000 prize pool + global digital anthology publishing.",
+    fundingAmount: "$1,500,000 prize pool + global digital anthology publishing.",
   },
   {
     id: "o6",

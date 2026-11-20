@@ -292,7 +292,7 @@ function mapPortfolio(id: string, data: Record<string, any>): WriterPortfolio {
     availableForWork: data.availableForWork !== false,
     pricingModel,
     rateAmount: Number(data.rateAmount || 0),
-    rateCurrency: String(data.rateCurrency || "NGN"),
+    rateCurrency: String(data.rateCurrency || "USD"),
     rateNegotiable: data.rateNegotiable !== false,
     social: cleanSocial(data.social || {}),
     achievements: Array.isArray(data.achievements)
@@ -622,7 +622,7 @@ export async function savePortfolio(input: {
         : existing?.availableForWork !== false,
     pricingModel: (input.pricingModel || existing?.pricingModel || "per-project") as PricingModel,
     rateAmount: Number(input.rateAmount ?? existing?.rateAmount ?? 0),
-    rateCurrency: String(input.rateCurrency || existing?.rateCurrency || "NGN"),
+    rateCurrency: String(input.rateCurrency || existing?.rateCurrency || "USD"),
     rateNegotiable:
       input.rateNegotiable != null ? Boolean(input.rateNegotiable) : existing?.rateNegotiable !== false,
     social: cleanSocial(input.social || existing?.social || {}),

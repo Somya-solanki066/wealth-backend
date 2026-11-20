@@ -77,9 +77,9 @@ export const DEFAULT_LANDING_COURSES: Record<LandingCourseId, LandingCourse> = {
     description:
       "The complete guide to writing, publishing, and earning from serialized fiction on all 9 major platforms. Real editor standards. Real income strategies.",
     tags: ["12 Modules", "48 Lessons", "9 Platforms", "Lifetime Access"],
-    primaryCtaLabel: "Enroll Now — ₦35,000",
+    primaryCtaLabel: "Enroll Now — $35,000",
     primaryCtaHref: "/witweb-landing",
-    secondaryCtaLabel: "Get Bundle with App — ₦55,000",
+    secondaryCtaLabel: "Get Bundle with App — $55,000",
     secondaryCtaHref: "/witweb-landing",
     miniCreatorLabel: "Victor Daniels — Course Creator",
     miniCreatorBio:
@@ -147,9 +147,9 @@ export const DEFAULT_LANDING_COURSES: Record<LandingCourseId, LandingCourse> = {
     description:
       "Master screenplay and script writing from concept to final draft. Feature films, TV series, audio drama — and how to get your script into the right hands.",
     tags: ["10 Modules", "40 Lessons", "Film + TV + Audio", "Lifetime Access"],
-    primaryCtaLabel: "Enroll Now — ₦30,000",
+    primaryCtaLabel: "Enroll Now — $30,000",
     primaryCtaHref: "/ssg-landing",
-    secondaryCtaLabel: "Get Both Courses — ₦55,000",
+    secondaryCtaLabel: "Get Both Courses — $55,000",
     secondaryCtaHref: "/ssg-landing",
     miniCreatorLabel: "Victor Daniels — Course Creator",
     miniCreatorBio:

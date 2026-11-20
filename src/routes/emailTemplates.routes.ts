@@ -5,7 +5,9 @@ import {
   EmailTemplateId,
   ensureEmailTemplatesSeeded,
   listTemplates,
+  loadEmailBrand,
   loadTemplate,
+  saveEmailBrand,
   saveTemplate,
   sendTestEmail,
 } from "../services/email.service";
@@ -15,6 +17,24 @@ const router = Router();
 function isTemplateId(id: string): id is EmailTemplateId {
   return (EMAIL_TEMPLATE_IDS as string[]).includes(id);
 }
+
+router.get("/brand", verifyAdmin, async (_req, res: Response) => {
+  try {
+    const brand = await loadEmailBrand();
+    return res.json({ brand });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || "Failed to load email brand" });
+  }
+});
+
+router.put("/brand", verifyAdmin, async (req: AdminRequest, res: Response) => {
+  try {
+    const brand = await saveEmailBrand((req.body?.brand || req.body || {}) as Record<string, string>);
+    return res.json({ brand });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || "Failed to save email brand" });
+  }
+});
 
 router.get("/", verifyAdmin, async (_req, res: Response) => {
   try {

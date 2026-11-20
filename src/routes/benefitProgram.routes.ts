@@ -393,12 +393,12 @@ router.get("/ae/dashboard", optionalAuth, async (req: any, res) => {
 
       // Seed default referral sample list as shown in Image 5
       const seedReferrals = [
-        { aeUserId: userId, name: "Chidi O.", programType: "writer", contractType: "Exclusive", status: "Signed · ₦10,000", isSigned: true, amount: 10000 },
-        { aeUserId: userId, name: "Amaka E.", programType: "writer", contractType: "Non-exclusive", status: "Signed · ₦5,000", isSigned: true, amount: 5000 },
+        { aeUserId: userId, name: "Chidi O.", programType: "writer", contractType: "Exclusive", status: "Signed · $10,000", isSigned: true, amount: 10000 },
+        { aeUserId: userId, name: "Amaka E.", programType: "writer", contractType: "Non-exclusive", status: "Signed · $5,000", isSigned: true, amount: 5000 },
         { aeUserId: userId, name: "Tunde A.", programType: "writer", contractType: "Exclusive", status: "Pending", isSigned: false, amount: 0 },
         { aeUserId: userId, name: "Ngozi P.", programType: "writer", contractType: "Non-exclusive", status: "Pending", isSigned: false, amount: 0 },
-        { aeUserId: userId, name: "Femi K.", programType: "screenwriter", contractType: "Exclusive", status: "Signed · ₦10,000", isSigned: true, amount: 10000 },
-        { aeUserId: userId, name: "Ebere B.", programType: "screenwriter", contractType: "Exclusive", status: "Signed · ₦5,000", isSigned: true, amount: 5000 },
+        { aeUserId: userId, name: "Femi K.", programType: "screenwriter", contractType: "Exclusive", status: "Signed · $10,000", isSigned: true, amount: 10000 },
+        { aeUserId: userId, name: "Ebere B.", programType: "screenwriter", contractType: "Exclusive", status: "Signed · $5,000", isSigned: true, amount: 5000 },
         { aeUserId: userId, name: "Yusuf M.", programType: "screenwriter", contractType: "Exclusive", status: "Pending", isSigned: false, amount: 0 },
       ];
       for (const r of seedReferrals) {
@@ -423,7 +423,7 @@ router.get("/ae/dashboard", optionalAuth, async (req: any, res) => {
         id: doc.id,
         name: d.name || d.writerName || "Writer",
         contractType: d.contractType || "Exclusive",
-        status: d.status || (d.isSigned ? `Signed · ₦${(d.amount || 10000).toLocaleString()}` : "Pending"),
+        status: d.status || (d.isSigned ? `Signed · $${(d.amount || 10000).toLocaleString()}` : "Pending"),
         isSigned: d.isSigned || d.status?.startsWith("Signed"),
       };
       if (d.programType === "screenwriter") {
@@ -492,7 +492,7 @@ router.post("/ae/withdraw", optionalAuth, async (req: any, res) => {
       accountNumber,
       accountName,
       amount: amount || 30000,
-      currency: "NGN",
+      currency: "USD",
       status: "pending_review",
       createdAt: new Date().toISOString(),
     });
@@ -565,7 +565,7 @@ router.post("/admin/applications/:id/decision", verifyAdmin, async (req, res) =>
         .get();
       if (!refSnap.empty) {
         await refSnap.docs[0].ref.update({
-          status: `Signed · ₦${reward.toLocaleString()}`,
+          status: `Signed · $${reward.toLocaleString()}`,
           isSigned: true,
           amount: reward,
           updatedAt: new Date().toISOString(),

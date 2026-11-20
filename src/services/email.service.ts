@@ -2,7 +2,9 @@ import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import { getFirestore } from "firebase-admin/firestore";
 import {
+  DEFAULT_EMAIL_BRAND,
   DEFAULT_EMAIL_TEMPLATES,
+  EMAIL_COPY_VERSION,
   EMAIL_TEMPLATE_IDS,
   EmailTemplateDoc,
   EmailTemplateId,
@@ -12,6 +14,7 @@ import {
 
 const COLLECTION = "email_templates";
 const LOGS = "email_logs";
+const BRAND_DOC = "email_brand";
 
 let transporter: Transporter | null = null;
 
@@ -25,18 +28,29 @@ function smtpConfigured(): boolean {
 
 function getTransporter(): Transporter {
   if (transporter) return transporter;
-  const port = Number(process.env.SMTP_PORT || 465);
+  const port = Number(process.env.SMTP_PORT || 587);
   const secure = process.env.SMTP_SECURE === "true" || port === 465;
   transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || "smtp.zoho.com",
+    host: process.env.SMTP_HOST || "smtp-relay.brevo.com",
     port,
     secure,
+    requireTLS: !secure && port === 587,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
   });
   return transporter;
+}
+
+export function firstNameFrom(name?: string | null, email?: string | null): string {
+  const fromName = String(name || "").trim().split(/\s+/)[0];
+  if (fromName && fromName.toLowerCase() !== "user" && fromName.toLowerCase() !== "writer") {
+    return fromName;
+  }
+  const local = String(email || "").split("@")[0];
+  if (local) return local;
+  return "there";
 }
 
 export function renderTemplate(template: string, vars: Record<string, string | number | undefined | null>): string {
@@ -47,9 +61,28 @@ export function renderTemplate(template: string, vars: Record<string, string | n
   });
 }
 
-export function wrapInBrandLayout(innerHtml: string): string {
+export function wrapInBrandLayout(
+  innerHtml: string,
+  opts?: { preheader?: string; logoUrl?: string; brand?: Record<string, string> }
+): string {
   const year = new Date().getFullYear();
-  const site = frontendUrl();
+  const brand = { ...DEFAULT_EMAIL_BRAND, ...(opts?.brand || {}) };
+  const logo = opts?.logoUrl || brand.logoUrl;
+  const preheader = opts?.preheader || "";
+  const social = [
+    ["TikTok", brand.tiktok],
+    ["Instagram", brand.instagram],
+    ["YouTube", brand.youtube],
+    ["LinkedIn", brand.linkedin],
+    ["Facebook", brand.facebook],
+  ]
+    .filter(([, href]) => href)
+    .map(
+      ([label, href]) =>
+        `<a href="${href}" style="color:#0B1D36;text-decoration:none;margin-right:10px;">${label}</a>`
+    )
+    .join("");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -57,27 +90,29 @@ export function wrapInBrandLayout(innerHtml: string): string {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ink2Wealth</title>
 </head>
-<body style="margin:0;padding:0;background:#080808;color:#D4D4D4;font-family:Georgia,'Times New Roman',serif;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#080808;padding:32px 16px;">
+<body style="margin:0;padding:0;background:#F4F5F7;color:#15171C;font-family:Arial,Helvetica,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F4F5F7;padding:24px 12px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#161616;border:1px solid #2A2A2A;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#FFFFFF;border:1px solid #E7E9EE;">
           <tr>
-            <td style="padding:28px 28px 12px;border-bottom:1px solid #2A2A2A;">
-              <div style="font-size:20px;letter-spacing:0.08em;color:#C9A84C;font-weight:700;font-family:Georgia,serif;">
-                INK<span style="color:#F5F5F5;">2</span>WEALTH
-              </div>
+            <td style="padding:24px 20px 16px;border-bottom:3px solid #C9A84C;text-align:center;">
+              <img src="${logo}" alt="Ink2Wealth" width="160" style="display:inline-block;max-width:160px;height:auto;border:0;" />
             </td>
           </tr>
           <tr>
-            <td style="padding:28px;">
+            <td style="padding:24px 20px;">
               ${innerHtml}
             </td>
           </tr>
           <tr>
-            <td style="padding:20px 28px 28px;border-top:1px solid #2A2A2A;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.6;color:#8A8A8A;">
-              Need help? <a href="mailto:support@ink2wealth.co" style="color:#C9A84C;text-decoration:none;">support@ink2wealth.co</a><br/>
-              <a href="${site}" style="color:#8A8A8A;text-decoration:none;">ink2wealth.co</a> · © ${year} Ink2Wealth
+            <td style="padding:20px;border-top:1px solid #E7E9EE;font-size:12px;line-height:1.7;color:#5B616D;text-align:center;">
+              ${social}<br/>
+              Need help? <a href="mailto:${brand.supportEmail}" style="color:#0B1D36;">${brand.supportEmail}</a><br/>
+              Ink to Wealth Media Limited | Registered in Nigeria<br/>
+              <a href="${brand.unsubscribe_link}" style="color:#5B616D;">Unsubscribe / preferences</a>
+              · © ${year} Ink2Wealth
             </td>
           </tr>
         </table>
@@ -116,6 +151,29 @@ export async function listTemplates(): Promise<EmailTemplateDoc[]> {
   return EMAIL_TEMPLATE_IDS.map((id) => mergeEmailTemplate(id, byId.get(id)));
 }
 
+export async function loadEmailBrand(): Promise<Record<string, string>> {
+  const db = getFirestore();
+  const snap = await db.collection("settings").doc(BRAND_DOC).get();
+  const stored = snap.exists ? (snap.data() as Record<string, unknown>) : {};
+  const out: Record<string, string> = { ...DEFAULT_EMAIL_BRAND };
+  for (const [key, value] of Object.entries(stored || {})) {
+    if (typeof value === "string") out[key] = value;
+  }
+  if (!out.app_link) out.app_link = frontendUrl();
+  if (!out.unsubscribe_link) out.unsubscribe_link = `${frontendUrl()}/dashboard`;
+  return out;
+}
+
+export async function saveEmailBrand(patch: Record<string, string>): Promise<Record<string, string>> {
+  const db = getFirestore();
+  const clean: Record<string, string> = {};
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (typeof value === "string") clean[key] = value.trim();
+  }
+  await db.collection("settings").doc(BRAND_DOC).set(clean, { merge: true });
+  return loadEmailBrand();
+}
+
 export async function ensureEmailTemplatesSeeded(): Promise<void> {
   const db = getFirestore();
   const batch = db.batch();
@@ -123,8 +181,15 @@ export async function ensureEmailTemplatesSeeded(): Promise<void> {
   for (const id of EMAIL_TEMPLATE_IDS) {
     const ref = db.collection(COLLECTION).doc(id);
     const snap = await ref.get();
-    if (!snap.exists) {
-      batch.set(ref, { ...DEFAULT_EMAIL_TEMPLATES[id], updatedAt: new Date().toISOString() });
+    const storedVersion = Number(snap.exists ? (snap.data() as any)?.copyVersion || 0 : 0);
+    if (!snap.exists || storedVersion < EMAIL_COPY_VERSION) {
+      const enabled = snap.exists ? Boolean((snap.data() as any)?.enabled !== false) : true;
+      batch.set(ref, {
+        ...DEFAULT_EMAIL_TEMPLATES[id],
+        enabled,
+        copyVersion: EMAIL_COPY_VERSION,
+        updatedAt: new Date().toISOString(),
+      });
       writes += 1;
     }
   }
@@ -141,6 +206,7 @@ export async function saveTemplate(
     ...current,
     ...patch,
     id,
+    copyVersion: EMAIL_COPY_VERSION,
   };
   await db.collection(COLLECTION).doc(id).set(
     {
@@ -200,16 +266,65 @@ export async function sendTransactional(input: SendTransactionalInput): Promise<
     return { ok: false, reason: "smtp_not_configured" };
   }
 
-  const subject = renderTemplate(template.subject, vars);
-  const inner = renderTemplate(template.htmlBody, vars);
-  const html = wrapInBrandLayout(inner);
+  const brand = await loadEmailBrand();
+  const mergedVars: Record<string, string | number | undefined | null> = {
+    ...brand,
+    ...vars,
+  };
+  if (!mergedVars.first_name) {
+    mergedVars.first_name = firstNameFrom(String(mergedVars.name || ""), to);
+  }
+  if (!mergedVars.name) mergedVars.name = mergedVars.first_name;
+  if (!mergedVars.verification_link && mergedVars.verifyUrl) {
+    mergedVars.verification_link = mergedVars.verifyUrl;
+  }
+  if (!mergedVars.verifyUrl && mergedVars.verification_link) {
+    mergedVars.verifyUrl = mergedVars.verification_link;
+  }
+  if (!mergedVars.reset_link && mergedVars.resetUrl) mergedVars.reset_link = mergedVars.resetUrl;
+  if (!mergedVars.resetUrl && mergedVars.reset_link) mergedVars.resetUrl = mergedVars.reset_link;
+  if (!mergedVars.tier_name && mergedVars.planName) mergedVars.tier_name = mergedVars.planName;
+  if (!mergedVars.planName && mergedVars.tier_name) mergedVars.planName = mergedVars.tier_name;
+  if (!mergedVars.tier_features_list && mergedVars.featuresList) {
+    mergedVars.tier_features_list = mergedVars.featuresList;
+  }
+  if (!mergedVars.next_billing_date && mergedVars.expiryDate) {
+    mergedVars.next_billing_date = mergedVars.expiryDate;
+  }
+  if (!mergedVars.renewal_date && mergedVars.expiryDate) mergedVars.renewal_date = mergedVars.expiryDate;
+  if (!mergedVars.billing_link && mergedVars.updatePaymentUrl) {
+    mergedVars.billing_link = mergedVars.updatePaymentUrl;
+  }
+  if (!mergedVars.project_title && mergedVars.projectTitle) {
+    mergedVars.project_title = mergedVars.projectTitle;
+  }
+  if (!mergedVars.project_link && mergedVars.resultUrl) mergedVars.project_link = mergedVars.resultUrl;
+  if (!mergedVars.app_link && mergedVars.dashboardUrl) mergedVars.app_link = mergedVars.dashboardUrl;
+  if (!mergedVars.session_link && mergedVars.joinUrl) mergedVars.session_link = mergedVars.joinUrl;
+  if (!mergedVars.session_title && mergedVars.sessionDate) {
+    mergedVars.session_title = String(mergedVars.sessionDate);
+  }
+  if (!mergedVars.session_datetime && (mergedVars.sessionDate || mergedVars.sessionTime)) {
+    mergedVars.session_datetime = [mergedVars.sessionDate, mergedVars.sessionTime]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  const subject = renderTemplate(template.subject, mergedVars);
+  let inner = renderTemplate(template.htmlBody, mergedVars);
+  inner = inner.replace(/<img[^>]*src=["']\s*["'][^>]*>/gi, "");
+  const html = wrapInBrandLayout(inner, {
+    preheader: template.preheader ? renderTemplate(template.preheader, mergedVars) : "",
+    brand,
+  });
   const text = template.textBody?.trim()
-    ? renderTemplate(template.textBody, vars)
+    ? renderTemplate(template.textBody, mergedVars)
     : htmlToRoughText(inner);
 
   try {
     const info = await getTransporter().sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      from: process.env.SMTP_FROM || "Ink2Wealth <victor@ink2wealth.co>",
+      replyTo: process.env.SMTP_REPLY_TO || "support@ink2wealth.co",
       to,
       subject,
       html,
@@ -235,27 +350,35 @@ export async function sendTestEmail(templateId: EmailTemplateId, to: string): Pr
 
 /** Helpers for product triggers */
 export async function sendWelcomeEmail(to: string, name: string): Promise<SendResult> {
+  const first = firstNameFrom(name, to);
   return sendTransactional({
     templateId: "welcome",
     to,
-    vars: { name: name || "Writer", dashboardUrl: `${frontendUrl()}/dashboard` },
+    vars: {
+      name: name || first,
+      first_name: first,
+      dashboardUrl: `${frontendUrl()}/dashboard`,
+      app_link: frontendUrl(),
+    },
     dedupeKey: `welcome:${to.toLowerCase()}`,
   });
 }
 
 export async function sendVerificationEmail(to: string, name: string, verifyUrl: string): Promise<SendResult> {
+  const first = firstNameFrom(name, to);
   return sendTransactional({
     templateId: "email_verification",
     to,
-    vars: { name: name || "Writer", verifyUrl },
+    vars: { name: name || first, first_name: first, verifyUrl, verification_link: verifyUrl },
   });
 }
 
 export async function sendPasswordResetEmail(to: string, name: string, resetUrl: string): Promise<SendResult> {
+  const first = firstNameFrom(name, to);
   return sendTransactional({
     templateId: "password_reset",
     to,
-    vars: { name: name || "Writer", resetUrl },
+    vars: { name: name || first, first_name: first, resetUrl, reset_link: resetUrl },
   });
 }
 
@@ -272,11 +395,15 @@ export async function sendSubscriptionConfirmationEmail(opts: {
     to: opts.to,
     vars: {
       name: opts.name || "Writer",
+      first_name: firstNameFrom(opts.name, opts.to),
       planName: opts.planName,
+      tier_name: opts.planName,
       amount: opts.amount,
       expiryDate: opts.expiryDate,
+      next_billing_date: opts.expiryDate,
       dashboardUrl: `${frontendUrl()}/dashboard`,
       featuresList: opts.featuresList || "",
+      tier_features_list: opts.featuresList || "",
     },
   });
 }
@@ -297,8 +424,11 @@ export async function sendAiGenerationCompleteEmail(opts: {
     to: opts.to,
     vars: {
       name: opts.name || "Writer",
+      first_name: firstNameFrom(opts.name, opts.to),
       projectTitle: opts.projectTitle,
+      project_title: opts.projectTitle,
       resultUrl: opts.resultUrl || `${frontendUrl()}/dashboard`,
+      project_link: opts.resultUrl || `${frontendUrl()}/dashboard`,
       wordCount: wc,
     },
   });
@@ -319,10 +449,14 @@ export async function sendCoachingSessionReminder(opts: {
     to: opts.to,
     vars: {
       name: opts.name || "Writer",
+      first_name: firstNameFrom(opts.name, opts.to),
       sessionDate: opts.sessionDate,
       sessionTime: opts.sessionTime,
+      session_title: opts.coachName ? `${opts.coachName}` : opts.sessionDate,
+      session_datetime: [opts.sessionDate, opts.sessionTime].filter(Boolean).join(" · "),
       coachName: opts.coachName || "Your Coach",
       joinUrl: opts.joinUrl || `${frontendUrl()}/coach`,
+      session_link: opts.joinUrl || `${frontendUrl()}/coach`,
       notes: opts.notes || "",
     },
     dedupeKey: opts.dedupeKey,
@@ -341,9 +475,12 @@ export async function sendPaymentFailedEmail(opts: {
     to: opts.to,
     vars: {
       name: opts.name || "Writer",
+      first_name: firstNameFrom(opts.name, opts.to),
       planName: opts.planName,
+      tier_name: opts.planName,
       amount: opts.amount,
       updatePaymentUrl: opts.updatePaymentUrl || `${frontendUrl()}/pricing`,
+      billing_link: opts.updatePaymentUrl || `${frontendUrl()}/pricing`,
     },
   });
 }

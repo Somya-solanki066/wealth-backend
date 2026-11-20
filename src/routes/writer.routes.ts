@@ -77,9 +77,11 @@ const SCRIPT_LENGTH_PRESETS: Record<
   string,
   { label: string; min: number; max: number; target: number }
 > = {
-  short: { label: "Short", min: 500, max: 750, target: 650 },
-  standard: { label: "Standard", min: 1000, max: 1250, target: 1100 },
-  long: { label: "Long", min: 1800, max: 2500, target: 2100 },
+  short: { label: "Short (1 page)", min: 400, max: 700, target: 550 },
+  standard: { label: "Standard (2–3 pages)", min: 800, max: 1400, target: 1100 },
+  long: { label: "Long (4+ pages)", min: 1600, max: 2600, target: 2000 },
+  full_episode: { label: "Full Episode", min: 3500, max: 5500, target: 4500 },
+  custom: { label: "Custom", min: 600, max: 2200, target: 1300 },
 };
 
 function normalizeCharacters(input: unknown): string {
@@ -380,6 +382,11 @@ router.post(
         projectId,
         contextSummary,
         previousContent,
+        dialogueStyle,
+        dialogueLanguage,
+        setting,
+        previousSceneSummary,
+        customLength,
       } = req.body || {};
 
       const formatName = String(format || "Film").trim();
@@ -389,6 +396,10 @@ router.post(
       const plot = String(whatHappens || "").trim();
       const toneName = String(tone || "Dramatic").trim();
       const sceneNum = Math.max(1, Number(sceneNumber) || 1);
+      const dialogueLang = String(dialogueLanguage || dialogueStyle || "").trim();
+      const sceneSetting = String(setting || "").trim();
+      const prevSummary = String(previousSceneSummary || "").trim();
+      const customLen = String(customLength || "").trim();
       const lengthPreset = resolveLength(length, targetWordCount, SCRIPT_LENGTH_PRESETS);
 
       if (!genreName || !scriptTitle || !plot) {
@@ -401,7 +412,7 @@ router.post(
         userId,
         toolId: "ghost-writer",
         operation: "generateScript",
-        inputChars: plot.length + String(previousContent || "").length,
+        inputChars: plot.length + String(previousContent || "").length + prevSummary.length,
       });
       if (!charged.ok) {
         return res.status(charged.status).json(creditErrorBody(charged));
@@ -409,33 +420,36 @@ router.post(
 
       try {
       const autoContext = await buildProjectContext(userId, projectId || null);
-      const continuity = [String(contextSummary || "").trim(), autoContext]
+      const continuity = [prevSummary ? `PREVIOUS SCENE SUMMARY:\n${prevSummary}` : "", String(contextSummary || "").trim(), autoContext]
         .filter(Boolean)
         .join("\n\n");
 
-      const systemPrompt = `You are an expert professional screenwriter for Film, TV, and Audio drama (including Nollywood and serialized audio formats).
-Write a complete, usable screenplay scene/block in proper format:
-- Scene headings (INT./EXT.)
-- Action lines
+      const systemPrompt = `You are an expert professional screenwriter for Film, TV, Web Series, and Audio drama (including Nollywood, Hollywood, and digital formats).
+Write a complete, usable screenplay scene/block in proper industry format:
+- Scene headings (INT./EXT. LOCATION - TIME OF DAY)
+- Action lines (concise, visual, present tense)
 - Character cues
-- Dialogue
-- Parentheticals when needed
-Output ONLY the screenplay text (no markdown fences, no commentary).
-Target length: roughly ${lengthPreset.min}-${lengthPreset.max} words (aim ~${lengthPreset.target}).`;
+- Dialogue with authentic subtext and rhythm${dialogueLang ? `\n- DIALOGUE LANGUAGE/STYLE: Write dialogue authentically in ${dialogueLang}. Use natural vernacular, cadence, and cultural speech patterns without being caricatured.` : ""}
+- Parentheticals when strictly necessary
+Output ONLY the screenplay text (no markdown fences, no conversational commentary).
+Target length: roughly ${customLen ? customLen : `${lengthPreset.min}-${lengthPreset.max} words (aim ~${lengthPreset.target})`}.`;
 
       const userPrompt = [
         `Format: ${formatName}`,
         `Genre: ${genreName}`,
         `Title: ${scriptTitle}`,
         `Scene number: ${sceneNum}`,
+        sceneSetting ? `Setting (Slugline): ${sceneSetting}` : "",
         `Characters: ${characterNames || "As needed for the scene"}`,
         `Tone: ${toneName}`,
+        dialogueLang ? `Dialogue Language / Style: ${dialogueLang}` : "",
+        customLen ? `Length / Runtime: ${customLen}` : "",
         `What should happen in this scene:\n${plot}`,
-        continuity ? `\nContinuity context:\n${continuity}` : "",
+        continuity ? `\nContinuity & Previous Scene Context:\n${continuity}` : "",
         previousContent
           ? `\nRewrite/regenerate. Improve this previous draft while keeping the same intent:\n${String(previousContent).slice(0, 6000)}`
           : "",
-        `\nWrite Scene ${sceneNum} now.`,
+        `\nWrite Scene ${sceneNum} now in standard screenplay format.`,
       ]
         .filter(Boolean)
         .join("\n");

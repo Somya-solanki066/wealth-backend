@@ -6,7 +6,7 @@ import { getPlanById, isFreePlan, subscriptionFieldsForPlan, toStripeUnitAmount 
 import { getPrimaryFrontendUrl } from "../utils/envUrls";
 import { handleCourseCheckoutWebhook } from "./courseEnrollment.routes";
 import { handleMarketplaceCheckoutWebhook } from "./marketplace.routes";
-import { sendSubscriptionConfirmationEmail } from "../services/email.service";
+import { sendPaymentFailedEmail, sendSubscriptionConfirmationEmail } from "../services/email.service";
 import { syncCreditsForPlanChange } from "../services/aiCredits.service";
 
 const router = express.Router();
@@ -14,9 +14,9 @@ const router = express.Router();
 function formatMoney(amountTotal: number | null | undefined, currency: string | null | undefined, fallback: string) {
   if (typeof amountTotal === "number" && amountTotal > 0) {
     const major = amountTotal / 100;
-    const cur = (currency || "ngn").toUpperCase();
+    const cur = (currency || "usd").toUpperCase();
     try {
-      return new Intl.NumberFormat("en-NG", { style: "currency", currency: cur }).format(major);
+      return new Intl.NumberFormat("en-US", { style: "currency", currency: cur }).format(major);
     } catch {
       return `${cur} ${major.toLocaleString()}`;
     }
@@ -62,7 +62,10 @@ async function notifySubscriptionPaid(opts: {
       amount: formatMoney(opts.amountTotal, opts.currency, opts.plan.price),
       expiryDate,
       featuresList: featuresList
-        ? `<p style="margin:0 0 16px;font-size:15px;line-height:1.65;color:#D4D4D4;">${featuresList}</p>`
+        ? `<ul style="margin:0 0 16px;padding-left:20px;font-size:15px;line-height:1.7;color:#15171C;">${featuresList
+            .split("<br/>")
+            .map((row) => `<li>${row.replace(/^•\s*/, "")}</li>`)
+            .join("")}</ul>`
         : "",
     });
   } catch (err: any) {
@@ -107,7 +110,7 @@ router.post("/create-checkout-session", verifyFirebaseToken, async (req: Authent
       ? { price: plan.stripePriceId, quantity: 1 }
       : {
           price_data: {
-            currency: plan.currency || "ngn",
+            currency: plan.currency || "usd",
             product_data: {
               name: plan.name,
               description: `Ink2Wealth ${plan.world} plan`,
@@ -292,6 +295,41 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
       } catch (error) {
         console.error("Error updating user after Stripe payment:", error);
       }
+    }
+  }
+
+  if (event.type === "invoice.payment_failed") {
+    const invoice = event.data.object as Stripe.Invoice & {
+      customer_email?: string | null;
+      metadata?: Record<string, string>;
+      subscription_details?: { metadata?: Record<string, string> };
+    };
+    const email = invoice.customer_email || "";
+    const amount = formatMoney(invoice.amount_due, invoice.currency, "");
+    const userId = String(invoice.subscription_details?.metadata?.userId || invoice.metadata?.userId || "");
+    let name = "Writer";
+    let planName = "your plan";
+    if (userId) {
+      try {
+        const db = getFirestore();
+        const snap = await db.collection("users").doc(userId).get();
+        if (snap.exists) {
+          const data = snap.data() || {};
+          name = String(data.displayName || name);
+          planName = String(data.subscriptionPlan || planName);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    if (email) {
+      void sendPaymentFailedEmail({
+        to: email,
+        name,
+        planName,
+        amount,
+        updatePaymentUrl: `${getPrimaryFrontendUrl()}/pricing`,
+      });
     }
   }
 

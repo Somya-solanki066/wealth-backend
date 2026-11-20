@@ -86,7 +86,7 @@ export async function fulfillCourseEnrollment(params: {
     courseName: product.name,
     amountPaid: Math.round(params.amountTotal / 100),
     amountPaidKobo: params.amountTotal,
-    currency: params.currency || "ngn",
+    currency: params.currency || "usd",
     status: "paid",
     paymentProvider: "stripe",
     stripeSessionId: params.stripeSessionId,

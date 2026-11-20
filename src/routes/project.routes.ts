@@ -11,6 +11,7 @@ import {
   finalizeAiCredits,
   refundAiCredits,
 } from "../services/aiCredits.service";
+import { frontendUrl, sendAiGenerationCompleteEmail } from "../services/email.service";
 
 const router = Router();
 
@@ -683,6 +684,15 @@ Respond ONLY in this JSON format:
       promptTokens: usage?.prompt_tokens || 0,
       completionTokens: usage?.completion_tokens || 0,
     });
+    if (userEmail && wordsAnalyzed >= 800) {
+      void sendAiGenerationCompleteEmail({
+        to: userEmail,
+        name: req.user.name || "Writer",
+        projectTitle: chapterName || projectName || "Your chapter",
+        resultUrl: `${frontendUrl()}/dashboard`,
+        wordCount: wordsAnalyzed,
+      });
+    }
     return res.status(200).json({
       ...parsedContent,
       creditsCharged: charged.featureCreditCost,

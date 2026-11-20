@@ -67,6 +67,7 @@ import wealthRoutes from "./routes/wealth.routes";
 import industryRoutes from "./routes/industry.routes";
 import wealthToolsRoutes from "./routes/wealthTools.routes";
 import emailTemplatesRoutes from "./routes/emailTemplates.routes";
+import { ensureEmailTemplatesSeeded } from "./services/email.service";
 import emailRoutes from "./routes/email.routes";
 import cronRoutes from "./routes/cron.routes";
 import trendingSerialsRoutes from "./routes/trendingSerials.routes";
@@ -75,6 +76,7 @@ import memberStoriesRoutes, { ensureSeedMemberStories } from "./routes/memberSto
 import aboutInk2wealthRoutes from "./routes/aboutInk2wealth.routes";
 import benefitProgramRoutes from "./routes/benefitProgram.routes";
 import worldBannersRoutes, { ensureSeedWorldBanners } from "./routes/worldBanners.routes";
+import toolCardsRoutes from "./routes/toolCards.routes";
 import { getUploadsDir } from "./utils/paths";
 import { getAllowedCorsOrigins } from "./utils/envUrls";
 import { verifyAdmin } from "./middleware/admin.middleware";
@@ -192,7 +194,14 @@ app.use((req, res, next) => {
 app.use(express.urlencoded({ extended: true }));
 
 const uploadsDir = getUploadsDir();
-app.use("/uploads", express.static(uploadsDir));
+app.use(
+  "/uploads",
+  express.static(uploadsDir),
+  (req, res) => {
+    const cleanPath = req.path.startsWith("/") ? req.path : `/${req.path}`;
+    return res.redirect(302, `https://api.ink2wealth.co/uploads${cleanPath}`);
+  }
+);
 
 // Clients sometimes call /projects instead of /api/projects
 app.use((req, res, next) => {
@@ -280,6 +289,7 @@ app.use("/api/trending-scripts", trendingScriptsRoutes);
 app.use("/api/screenwriter/trending-scripts", trendingScriptsRoutes);
 app.use("/api/member-stories", memberStoriesRoutes);
 app.use("/api/world-banners", worldBannersRoutes);
+app.use("/api/tool-cards", toolCardsRoutes);
 app.use("/api/about-ink2wealth", aboutInk2wealthRoutes);
 app.use("/api/contracts", benefitProgramRoutes);
 app.use("/api/benefit-program", benefitProgramRoutes);
@@ -302,6 +312,7 @@ app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
   ensureSeedMemberStories().catch((err) => console.error("Auto-seed member stories failed:", err));
   ensureSeedWorldBanners().catch((err) => console.error("Auto-seed world banners failed:", err));
+  ensureEmailTemplatesSeeded().catch((err) => console.error("Auto-seed email templates failed:", err));
 });
 
 export { firebaseAdminInitialized };

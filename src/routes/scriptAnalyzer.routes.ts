@@ -18,11 +18,30 @@ import {
 
 const router = express.Router();
 
-const VALID_FORMATS = new Set<ScriptFormat>(["feature", "tv_pilot", "short", "audio_drama"]);
+const VALID_FORMATS = new Set<ScriptFormat>([
+  "feature",
+  "tv_pilot",
+  "short",
+  "limited_series",
+  "web_series",
+  "spec_episode",
+  "stage_play",
+  "animation",
+  "documentary",
+  "commercial_ad",
+  "bible_pitch",
+  "audio_drama",
+]);
 const VALID_MODES = new Set<ScriptAnalysisMode>([
   "full_script",
   "scene_analysis",
   "dialogue_punchup",
+  "coverage_report",
+  "structure_beat_sheet",
+  "character_analysis",
+  "pacing_hook",
+  "formatting_check",
+  "logline_pitch",
 ]);
 
 /** POST /api/script/analyze */

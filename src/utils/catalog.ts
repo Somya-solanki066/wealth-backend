@@ -23,6 +23,26 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
     "Letterlux",
     "Stary",
     "NovelSnack",
+    "Ink2wealth Novels",
+    "Traditional route",
+    "Literary Agent (query/submission)",
+    "Publishing House (acquisitions editor)",
+    "Literary Magazine / Short Story Contest",
+    "Self-publishing",
+    "Amazon KDP / Kindle Unlimited",
+    "Indie Author (general self-publishing)",
+    "Free reading platforms",
+    "Ream",
+    "Reedsy",
+    "Wattpad",
+    "Royal Road",
+    "Scribble Hub",
+    "Inkitt",
+    "Tapas",
+    "AO3 (fan fiction)",
+    "Radish",
+    "General / Self-Edit",
+    "Others",
   ].map((name) => ({ id: name, name, enabled: true })),
   genres: WRITER_GENRES.map((name) => ({ id: name, name, enabled: true })),
 };
@@ -90,7 +110,7 @@ export async function getAnalyzerPrompt(platform: string): Promise<string> {
   const snap = await db.collection("analyzer_prompts").doc(platform).get();
   const stored = String(snap.data()?.prompt || "").trim();
   if (stored) return stored;
-  return DEFAULT_ANALYZER_PROMPTS[platform] || DEFAULT_ANALYZER_PROMPTS.GoodNovel;
+  return DEFAULT_ANALYZER_PROMPTS[platform] || DEFAULT_ANALYZER_PROMPTS.Others || DEFAULT_ANALYZER_PROMPTS.GoodNovel;
 }
 
 export async function listAnalyzerPromptPlatforms(): Promise<string[]> {

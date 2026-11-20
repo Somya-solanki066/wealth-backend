@@ -218,7 +218,7 @@ function mapPortfolio(id: string, data: Record<string, any>): ScreenwriterPortfo
       ? data.pricingModel
       : "per-page",
     rateAmount: Number(data.rateAmount || 0),
-    rateCurrency: String(data.rateCurrency || "NGN"),
+    rateCurrency: String(data.rateCurrency || "USD"),
     rateNegotiable: data.rateNegotiable !== false,
     social: cleanSocial(data.social || {}),
     achievements: Array.isArray(data.achievements)
@@ -379,7 +379,7 @@ export async function saveScreenwriterPortfolio(
       input.availableForWork != null ? Boolean(input.availableForWork) : existing?.availableForWork !== false,
     pricingModel: input.pricingModel || existing?.pricingModel || "per-page",
     rateAmount: Number(input.rateAmount ?? existing?.rateAmount ?? 0),
-    rateCurrency: String(input.rateCurrency || existing?.rateCurrency || "NGN"),
+    rateCurrency: String(input.rateCurrency || existing?.rateCurrency || "USD"),
     rateNegotiable:
       input.rateNegotiable != null ? Boolean(input.rateNegotiable) : existing?.rateNegotiable !== false,
     social: cleanSocial(input.social || existing?.social || {}),
@@ -549,8 +549,8 @@ export async function adminSetVerification(
 function formatRate(p: ScreenwriterPortfolio) {
   const amount = p.rateAmount || 0;
   const formatted =
-    p.rateCurrency === "NGN"
-      ? `₦${amount >= 1000 ? `${Math.round(amount / 1000)}k` : amount}`
+    p.rateCurrency === "USD"
+      ? `$${amount >= 1000 ? `${Math.round(amount / 1000)}k` : amount}`
       : `${p.rateCurrency} ${amount}`;
   const suffix =
     p.pricingModel === "per-page"

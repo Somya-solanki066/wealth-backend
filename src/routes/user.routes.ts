@@ -1,4 +1,4 @@
-import { Router, Response } from "express";
+import { Router, Request, Response } from "express";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { verifyFirebaseToken, AuthenticatedRequest } from "../middleware/auth.middleware";
@@ -35,6 +35,10 @@ router.post("/verify", verifyFirebaseToken, async (req: AuthenticatedRequest, re
     const userRef = db.collection("users").doc(uid);
     const docSnap = await userRef.get();
 
+    const provider = String((req.user as any)?.firebase?.sign_in_provider || "");
+    const socialLogin = provider === "google.com" || provider === "apple.com";
+    const emailVerified = req.user.email_verified === true || socialLogin;
+
     if (!docSnap.exists) {
       // Create user doc if it doesn't exist (e.g. first time sign in via Google)
       const newUser = {
@@ -45,7 +49,7 @@ router.post("/verify", verifyFirebaseToken, async (req: AuthenticatedRequest, re
         createdAt: new Date().toISOString(),
       };
       await userRef.set(newUser);
-      if (email) {
+      if (email && emailVerified) {
         sendWelcomeEmail(email, newUser.displayName)
           .then(async (result) => {
             if (result.ok && !result.skipped) {
@@ -56,6 +60,19 @@ router.post("/verify", verifyFirebaseToken, async (req: AuthenticatedRequest, re
             }
           })
           .catch((err) => console.warn("[email] welcome failed:", err?.message || err));
+      } else if (email && !emailVerified) {
+        getAuth()
+          .generateEmailVerificationLink(email, { url: `${frontendUrl()}/dashboard`, handleCodeInApp: false })
+          .then((link) => sendVerificationEmail(email, newUser.displayName, link))
+          .then(async (result) => {
+            if (result.ok) {
+              await userRef.set(
+                { verificationEmailSentAt: new Date().toISOString() },
+                { merge: true }
+              );
+            }
+          })
+          .catch((err) => console.warn("[email] verification failed:", err?.message || err));
       }
       ensureWelcomeCredits(uid).catch((err) =>
         console.warn("[credits] welcome grant failed:", err?.message || err)
@@ -65,13 +82,8 @@ router.post("/verify", verifyFirebaseToken, async (req: AuthenticatedRequest, re
 
     const existing = docSnap.data() || {};
 
-    // Client may create the user doc before /verify; still send welcome once for new accounts
-    if (
-      email &&
-      !existing.welcomeEmailSentAt &&
-      existing.createdAt &&
-      Date.now() - new Date(existing.createdAt).getTime() < 48 * 60 * 60 * 1000
-    ) {
+    // Welcome only after verified email, or immediately for Google / Apple.
+    if (email && emailVerified && !existing.welcomeEmailSentAt) {
       sendWelcomeEmail(email, String(existing.displayName || name || "User"))
         .then(async (result) => {
           if (result.ok) {
@@ -517,7 +529,7 @@ router.get("/transactions", verifyFirebaseToken, async (req: AuthenticatedReques
         title: d.courseName || "Course",
         courseId: d.courseId || null,
         amountPaid: d.amountPaid || 0,
-        currency: (d.currency || "ngn").toUpperCase(),
+        currency: (d.currency || "usd").toUpperCase(),
         status: d.status || "paid",
         validFrom: d.validFrom || d.createdAt || null,
         validUntil: d.validUntil || null,
@@ -536,7 +548,7 @@ router.get("/transactions", verifyFirebaseToken, async (req: AuthenticatedReques
         title: d.planId ? `App Plan — ${String(d.planId).replace(/-/g, " ")}` : "App Subscription",
         courseId: null,
         amountPaid: d.amountTotal ? Math.round(Number(d.amountTotal) / 100) : 0,
-        currency: (d.currency || "ngn").toUpperCase(),
+        currency: (d.currency || "usd").toUpperCase(),
         status: d.status || "paid",
         validFrom: d.createdAt || null,
         validUntil: userSnap.data()?.subscriptionExpiry || null,
@@ -612,7 +624,7 @@ router.get("/transactions/:type/:id", verifyFirebaseToken, async (req: Authentic
           planName: null,
           amountPaid: d.amountPaid || 0,
           amountPaidKobo: d.amountPaidKobo || null,
-          currency: (d.currency || "ngn").toUpperCase(),
+          currency: (d.currency || "usd").toUpperCase(),
           status: d.status || "paid",
           validFrom,
           validUntil,
@@ -663,7 +675,7 @@ router.get("/transactions/:type/:id", verifyFirebaseToken, async (req: Authentic
           planName: plan?.name || null,
           amountPaid: d.amountTotal ? Math.round(Number(d.amountTotal) / 100) : 0,
           amountPaidKobo: d.amountTotal || null,
-          currency: (d.currency || "ngn").toUpperCase(),
+          currency: (d.currency || "usd").toUpperCase(),
           status: d.status || "paid",
           validFrom,
           validUntil,
@@ -790,6 +802,10 @@ router.post(
       if (!email) {
         return res.status(400).json({ error: "User has no email" });
       }
+      const provider = String((req.user as any)?.firebase?.sign_in_provider || "");
+      if (provider === "google.com" || provider === "apple.com" || req.user.email_verified) {
+        return res.json({ success: true, skipped: true, reason: "already_verified" });
+      }
 
       const continueUrl = `${frontendUrl()}/dashboard`;
       const link = await getAuth().generateEmailVerificationLink(email, {
@@ -821,6 +837,155 @@ router.post(
     }
   }
 );
+
+// Delete account (authenticated from mobile app or web dashboard)
+router.post(
+  "/delete-account",
+  verifyFirebaseToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Unauthorized: Missing user authentication" });
+      }
+
+      const uid = req.user.uid;
+      const email = req.user.email || "";
+      const reason = String(req.body?.reason || "User requested account deletion").trim();
+      const source = String(req.body?.source || "app").trim(); // 'mobile_app' | 'web_dashboard'
+      const db = getFirestore();
+      const now = new Date().toISOString();
+
+      // 1. Mark user doc as deleted in Firestore
+      await db.collection("users").doc(uid).set(
+        {
+          isDeleted: true,
+          status: "deleted",
+          deletedAt: now,
+          deletedReason: reason,
+          deletedSource: source,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+
+      // 2. Audit record in account_deletion_requests
+      await db.collection("account_deletion_requests").add({
+        uid,
+        email,
+        reason,
+        source,
+        status: "deleted",
+        createdAt: now,
+      });
+
+      // 3. Disable user in Firebase Auth so future logins fail with auth/user-disabled
+      try {
+        await getAuth().updateUser(uid, { disabled: true });
+        await getAuth().revokeRefreshTokens(uid);
+      } catch (authErr: any) {
+        console.warn("[delete-account] Could not disable Firebase Auth user:", authErr?.message || authErr);
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Your account has been deleted. You have been signed out.",
+      });
+    } catch (error: any) {
+      console.error("Error in delete-account route:", error);
+      return res.status(500).json({ error: error.message || "Failed to delete account" });
+    }
+  }
+);
+
+// Public delete request (for Google Play compliance URL: https://ink2wealth.org/delete-account)
+router.post("/public-delete-request", async (req: Request, res: Response) => {
+  try {
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const reason = String(req.body?.reason || "Google Play compliance public request via /delete-account").trim();
+
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ error: "A valid registered email address is required." });
+    }
+
+    const db = getFirestore();
+    const now = new Date().toISOString();
+    let foundUid: string | null = null;
+    let userFound = false;
+
+    // Check Firebase Auth by email
+    try {
+      const userRecord = await getAuth().getUserByEmail(email);
+      foundUid = userRecord.uid;
+      userFound = true;
+
+      // Disable in Firebase Auth
+      await getAuth().updateUser(userRecord.uid, { disabled: true });
+      await getAuth().revokeRefreshTokens(userRecord.uid);
+
+      // Update in Firestore
+      await db.collection("users").doc(userRecord.uid).set(
+        {
+          isDeleted: true,
+          status: "deleted",
+          deletedAt: now,
+          deletedReason: reason,
+          deletedSource: "web_public",
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    } catch (authErr: any) {
+      console.warn("[public-delete-request] Auth lookup failed:", authErr?.message || authErr);
+    }
+
+    // Check Firestore if not found via Auth
+    if (!userFound) {
+      const snap = await db.collection("users").where("email", "==", email).get();
+      if (!snap.empty) {
+        userFound = true;
+        for (const doc of snap.docs) {
+          foundUid = doc.id;
+          await doc.ref.set(
+            {
+              isDeleted: true,
+              status: "deleted",
+              deletedAt: now,
+              deletedReason: reason,
+              deletedSource: "web_public",
+              updatedAt: now,
+            },
+            { merge: true }
+          );
+          try {
+            await getAuth().updateUser(doc.id, { disabled: true });
+            await getAuth().revokeRefreshTokens(doc.id);
+          } catch (_) {}
+        }
+      }
+    }
+
+    // Always record audit log in account_deletion_requests
+    await db.collection("account_deletion_requests").add({
+      uid: foundUid,
+      email,
+      reason,
+      source: "web_public",
+      status: userFound ? "deleted" : "pending_verification",
+      userFound,
+      createdAt: now,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Account deletion request received and processed. Your account is deactivated and you are logged out. To revoke this deletion in the future, please contact support@ink2wealth.co.",
+      userFound,
+    });
+  } catch (error: any) {
+    console.error("Error in public-delete-request:", error);
+    return res.status(500).json({ error: error.message || "Failed to process account deletion request." });
+  }
+});
 
 export default router;
 

@@ -44,9 +44,9 @@ const WRITER_PLANS: BillingPlan[] = [
     id: "free",
     world: "writer",
     name: "FREE",
-    price: "₦0",
+    price: "$0",
     priceAmount: 0,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 0,
     period: "Forever free",
     badge: "",
@@ -73,9 +73,9 @@ const WRITER_PLANS: BillingPlan[] = [
     id: "6-month",
     world: "writer",
     name: "6-MONTH",
-    price: "₦24,900",
+    price: "$24,900",
     priceAmount: 24900,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 180,
     period: "every 6 months · Save 40%",
     badge: "BEST VALUE",
@@ -102,9 +102,9 @@ const WRITER_PLANS: BillingPlan[] = [
     id: "yearly",
     world: "writer",
     name: "YEARLY",
-    price: "₦49,900",
+    price: "$49,900",
     priceAmount: 49900,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 365,
     period: "per year · Save 60%",
     badge: "",
@@ -130,9 +130,9 @@ const WRITER_PLANS: BillingPlan[] = [
     id: "monthly",
     world: "writer",
     name: "MONTHLY",
-    price: "₦6,900",
+    price: "$6,900",
     priceAmount: 6900,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 30,
     period: "per month",
     badge: "",
@@ -162,9 +162,9 @@ const SCREENWRITER_PLANS: BillingPlan[] = [
     id: "screenwriter-free",
     world: "screenwriter",
     name: "FREE",
-    price: "₦0",
+    price: "$0",
     priceAmount: 0,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 0,
     period: "Forever free",
     badge: "",
@@ -192,9 +192,9 @@ const SCREENWRITER_PLANS: BillingPlan[] = [
     id: "screenwriter-6-month",
     world: "screenwriter",
     name: "6-MONTH",
-    price: "₦24,900",
+    price: "$24,900",
     priceAmount: 24900,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 180,
     period: "every 6 months",
     badge: "BEST VALUE",
@@ -222,9 +222,9 @@ const SCREENWRITER_PLANS: BillingPlan[] = [
     id: "screenwriter-yearly",
     world: "screenwriter",
     name: "YEARLY",
-    price: "₦49,900",
+    price: "$49,900",
     priceAmount: 49900,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 365,
     period: "per year · Save 60%",
     badge: "",
@@ -253,9 +253,9 @@ const STUDENT_PLANS: BillingPlan[] = [
     id: "student-free",
     world: "student",
     name: "FREE",
-    price: "₦0",
+    price: "$0",
     priceAmount: 0,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 0,
     period: "No account needed to start",
     badge: "",
@@ -282,9 +282,9 @@ const STUDENT_PLANS: BillingPlan[] = [
     id: "student-6-month",
     world: "student",
     name: "6-MONTH",
-    price: "₦24,900",
+    price: "$24,900",
     priceAmount: 24900,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 180,
     period: "every 6 months · Save 40%",
     badge: "MOST POPULAR",
@@ -311,9 +311,9 @@ const STUDENT_PLANS: BillingPlan[] = [
     id: "student-yearly",
     world: "student",
     name: "YEARLY",
-    price: "₦49,900",
+    price: "$49,900",
     priceAmount: 49900,
-    currency: "ngn",
+    currency: "usd",
     durationDays: 365,
     period: "per year · Maximum value",
     badge: "",
@@ -351,10 +351,10 @@ export function parsePriceAmount(price: string | number | undefined): number {
   return Number.isFinite(value) ? Math.round(value) : 0;
 }
 
-export function formatPriceDisplay(amount: number, currency = "ngn"): string {
-  if (!amount) return currency.toLowerCase() === "ngn" ? "₦0" : "0";
-  const formatted = amount.toLocaleString("en-NG");
-  return currency.toLowerCase() === "ngn" ? `₦${formatted}` : formatted;
+export function formatPriceDisplay(amount: number, currency = "usd"): string {
+  if (!amount) return currency.toLowerCase() === "usd" ? "$0" : "0";
+  const formatted = amount.toLocaleString("en-US");
+  return currency.toLowerCase() === "usd" ? `$${formatted}` : formatted;
 }
 
 export function isFreePlan(plan: Partial<BillingPlan> | undefined): boolean {
@@ -380,7 +380,7 @@ export function normalizePlan(raw: any, index = 0): BillingPlan {
   const priceAmount =
     typeof raw?.priceAmount === "number" ? raw.priceAmount : parsePriceAmount(raw?.price);
   const isFree = isFreePlan({ ...raw, id, priceAmount });
-  const currency = String(raw?.currency || "ngn").toLowerCase();
+  const currency = String(raw?.currency || "usd").toLowerCase();
   const parsedDuration = Number(raw?.durationDays);
   const durationDays =
     Number.isFinite(parsedDuration) && parsedDuration >= 0

@@ -202,6 +202,216 @@ router.delete("/users/:id", async (req: Request, res: Response) => {
   }
 });
 
+// Retrieve all deleted users and account deletion requests
+router.get("/deleted-users", async (req: Request, res: Response) => {
+  try {
+    const db = getFirestore();
+    const search = String(req.query.search || "").toLowerCase().trim();
+
+    // 1. Fetch users marked isDeleted: true or status: "deleted"
+    const usersSnap = await db.collection("users").get();
+    const deletedUsersMap = new Map<string, any>();
+
+    for (const doc of usersSnap.docs) {
+      const data = doc.data() || {};
+      if (data.isDeleted === true || data.status === "deleted") {
+        deletedUsersMap.set(doc.id, {
+          id: doc.id,
+          uid: doc.id,
+          name: data.displayName || data.name || "N/A",
+          email: data.email || "N/A",
+          role: data.role || "user",
+          photoURL: data.photoURL || null,
+          deletedAt: toIso(data.deletedAt) || toIso(data.updatedAt) || null,
+          deletedReason: data.deletedReason || "User requested account deletion",
+          deletedSource: data.deletedSource || "mobile_app",
+          status: "deleted",
+          createdAt: toIso(data.createdAt),
+          isPremium: isUserPremium(data),
+          subscriptionPlan: data.subscriptionPlan || "None",
+        });
+      }
+    }
+
+    // 2. Fetch requests from account_deletion_requests collection
+    try {
+      const requestsSnap = await db.collection("account_deletion_requests").orderBy("createdAt", "desc").get();
+      for (const doc of requestsSnap.docs) {
+        const reqData = doc.data() || {};
+        const uid = reqData.uid || doc.id;
+        const existing = deletedUsersMap.get(uid);
+
+        if (!existing) {
+          deletedUsersMap.set(uid, {
+            id: uid,
+            uid: uid,
+            requestId: doc.id,
+            name: reqData.name || "Requested Deletion",
+            email: reqData.email || "N/A",
+            role: "user",
+            photoURL: null,
+            deletedAt: toIso(reqData.createdAt) || null,
+            deletedReason: reqData.reason || "Web Public Request",
+            deletedSource: reqData.source || "web_public",
+            status: reqData.status || "deleted",
+            createdAt: toIso(reqData.createdAt),
+            isPremium: false,
+            subscriptionPlan: "None",
+          });
+        } else {
+          // Augment with reason and source if missing
+          if (!existing.deletedReason || existing.deletedReason === "User requested account deletion") {
+            existing.deletedReason = reqData.reason || existing.deletedReason;
+          }
+          if (reqData.source) existing.deletedSource = reqData.source;
+          if (reqData.status) existing.status = reqData.status;
+          existing.requestId = doc.id;
+        }
+      }
+    } catch (auditErr) {
+      console.warn("Could not read account_deletion_requests:", auditErr);
+    }
+
+    let result = Array.from(deletedUsersMap.values());
+
+    // Sort by deletedAt desc
+    result.sort((a, b) => {
+      const tA = a.deletedAt ? new Date(a.deletedAt).getTime() : 0;
+      const tB = b.deletedAt ? new Date(b.deletedAt).getTime() : 0;
+      return tB - tA;
+    });
+
+    // Optional search filter
+    if (search) {
+      result = result.filter(
+        (u) =>
+          u.email.toLowerCase().includes(search) ||
+          u.name.toLowerCase().includes(search) ||
+          u.id.toLowerCase().includes(search)
+      );
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+      total: result.length,
+    });
+  } catch (error: any) {
+    console.error("Error retrieving deleted users:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Revoke/Restore a deleted user (allows them to log in and use the platform again)
+router.post("/users/:id/revoke-delete", async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.params.id);
+    const db = getFirestore();
+    const now = new Date().toISOString();
+
+    // 1. Update Firestore user doc
+    const userRef = db.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+
+    if (userSnap.exists) {
+      await userRef.set(
+        {
+          isDeleted: false,
+          status: "active",
+          deletedAt: null,
+          deletedReason: null,
+          restoredAt: now,
+          updatedAt: now,
+        },
+        { merge: true }
+      );
+    }
+
+    // 2. Un-disable in Firebase Auth
+    try {
+      await getAuth().updateUser(userId, { disabled: false });
+    } catch (authErr: any) {
+      console.warn(`Could not re-enable Firebase user ${userId}:`, authErr?.message || authErr);
+    }
+
+    // 3. Mark deletion requests as revoked in audit collection
+    try {
+      const requestsSnap = await db
+        .collection("account_deletion_requests")
+        .where("uid", "==", userId)
+        .get();
+      for (const d of requestsSnap.docs) {
+        await d.ref.update({
+          status: "revoked",
+          revokedAt: now,
+        });
+      }
+    } catch (auditErr) {
+      console.warn("Could not update account_deletion_requests:", auditErr);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "User account has been successfully revoked and restored. The user can now log in.",
+    });
+  } catch (error: any) {
+    console.error("Error revoking user deletion:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Soft delete user from admin panel
+router.post("/users/:id/soft-delete", async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.params.id);
+    const reason = String(req.body?.reason || "Deactivated by administrator").trim();
+    const db = getFirestore();
+    const now = new Date().toISOString();
+
+    const userRef = db.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    await userRef.set(
+      {
+        isDeleted: true,
+        status: "deleted",
+        deletedAt: now,
+        deletedReason: reason,
+        deletedSource: "admin_panel",
+        updatedAt: now,
+      },
+      { merge: true }
+    );
+
+    try {
+      await getAuth().updateUser(userId, { disabled: true });
+      await getAuth().revokeRefreshTokens(userId);
+    } catch (authErr: any) {
+      console.warn("Could not disable Firebase user:", authErr?.message || authErr);
+    }
+
+    await db.collection("account_deletion_requests").add({
+      uid: userId,
+      email: userSnap.data()?.email || "",
+      reason,
+      source: "admin_panel",
+      status: "deleted",
+      createdAt: now,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User account deactivated and marked as deleted.",
+    });
+  } catch (error: any) {
+    console.error("Error soft-deleting user:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.post("/users/:id/subscription", async (req: Request, res: Response) => {
   try {
     const userId = req.params.id as string;
@@ -1308,7 +1518,7 @@ router.get("/course-enrollments", async (req: Request, res: Response) => {
         courseId: d.courseId || null,
         courseName: d.courseName || null,
         amountPaid: d.amountPaid || 0,
-        currency: (d.currency || "ngn").toUpperCase(),
+        currency: (d.currency || "usd").toUpperCase(),
         status: d.status || "pending",
         validFrom: toIso(d.validFrom) || toIso(d.createdAt),
         validUntil: toIso(d.validUntil),

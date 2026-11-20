@@ -86,7 +86,7 @@ const MATH_STARTERS: JambQuestion[] = [
   q("mathematics", 13, "If 2^(x+1) = 16, find x.", { A: "2", B: "3", C: "4", D: "5" }, "B", "Indices", 2021),
   q("mathematics", 14, "The nth term of the sequence 3, 7, 11, 15, ... is:", { A: "4n - 1", B: "4n + 1", C: "3n + 1", D: "4n - 3" }, "A", "Sequences", 2023),
   q("mathematics", 15, "Factorise completely: x² - 9", { A: "(x - 3)²", B: "(x + 3)(x - 3)", C: "(x - 9)(x + 1)", D: "x(x - 9)" }, "B", "Algebra", 2020),
-  q("mathematics", 16, "A trader bought an item for ₦4,500 and sold it at 20% profit. Selling price is:", { A: "₦5,000", B: "₦5,400", C: "₦5,200", D: "₦4,800" }, "B", "Commercial math", 2022),
+  q("mathematics", 16, "A trader bought an item for $4,500 and sold it at 20% profit. Selling price is:", { A: "$5,000", B: "$5,400", C: "$5,200", D: "$4,800" }, "B", "Commercial math", 2022),
   q("mathematics", 17, "Find the median of: 4, 7, 2, 9, 5, 7, 3", { A: "5", B: "7", C: "4", D: "6" }, "A", "Statistics", 2021),
   q("mathematics", 18, "If tan 45° = 1, then sin 45° =", { A: "1/2", B: "√2/2", C: "√3/2", D: "1" }, "B", "Trigonometry", 2023),
   q("mathematics", 19, "Solve the inequality: 2x - 3 < 7", { A: "x < 5", B: "x > 5", C: "x ≤ 5", D: "x ≥ 5" }, "A", "Inequalities", 2020),
@@ -159,7 +159,7 @@ export const JAMB_QUESTION_BANK: JambQuestion[] = [
     q(
       "english",
       n,
-      `Choose the option that best completes: "She has been studying hard ___ she wants to pass JAMB."`,
+      `Choose the option that best completes: "She has been studying hard ___ she wants to pass Exams."`,
       { A: "because", B: "although", C: "unless", D: "until" },
       "A",
       "Grammar",

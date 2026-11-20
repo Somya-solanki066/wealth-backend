@@ -1,19 +1,58 @@
 import { getFirestore } from "firebase-admin/firestore";
 
 export type ScriptIndustry =
+  | "general"
   | "hollywood"
   | "nollywood"
+  | "bollywood"
+  | "netflix_global"
+  | "korean_drama"
+  | "vertical_microdrama"
+  | "youtube_web"
+  | "stage_theatre"
+  | "video_game"
+  | "contest_submission"
   | "bbc_uk"
   | "netflix_africa"
   | "audio_drama";
 
-export type ScriptFormat = "feature" | "tv_pilot" | "short" | "audio_drama";
+export type ScriptFormat =
+  | "feature"
+  | "tv_pilot"
+  | "short"
+  | "limited_series"
+  | "web_series"
+  | "spec_episode"
+  | "stage_play"
+  | "animation"
+  | "documentary"
+  | "commercial_ad"
+  | "bible_pitch"
+  | "audio_drama";
 
-export type ScriptAnalysisMode = "full_script" | "scene_analysis" | "dialogue_punchup";
+export type ScriptAnalysisMode =
+  | "full_script"
+  | "scene_analysis"
+  | "dialogue_punchup"
+  | "coverage_report"
+  | "structure_beat_sheet"
+  | "character_analysis"
+  | "pacing_hook"
+  | "formatting_check"
+  | "logline_pitch";
 
 export const SCRIPT_INDUSTRIES: { id: ScriptIndustry; label: string }[] = [
+  { id: "general", label: "General / No Target" },
   { id: "hollywood", label: "Hollywood" },
   { id: "nollywood", label: "Nollywood" },
+  { id: "bollywood", label: "Bollywood" },
+  { id: "netflix_global", label: "Netflix / Global Streaming" },
+  { id: "korean_drama", label: "Korean Drama" },
+  { id: "vertical_microdrama", label: "Vertical Micro-drama (ReelShort, DramaBox)" },
+  { id: "youtube_web", label: "YouTube / Web Series" },
+  { id: "stage_theatre", label: "Stage / Theatre" },
+  { id: "video_game", label: "Video Game Narrative" },
+  { id: "contest_submission", label: "Contest / Film School Submission" },
   { id: "bbc_uk", label: "BBC / UK Television" },
   { id: "netflix_africa", label: "Netflix Africa" },
   { id: "audio_drama", label: "Audio Drama" },
@@ -23,6 +62,14 @@ export const SCRIPT_FORMATS: { id: ScriptFormat; label: string }[] = [
   { id: "feature", label: "Feature Film" },
   { id: "tv_pilot", label: "TV Pilot" },
   { id: "short", label: "Short Film" },
+  { id: "limited_series", label: "Limited Series" },
+  { id: "web_series", label: "Web Series / Micro-drama" },
+  { id: "spec_episode", label: "Spec Episode (of an existing show)" },
+  { id: "stage_play", label: "Stage Play" },
+  { id: "animation", label: "Animation" },
+  { id: "documentary", label: "Documentary" },
+  { id: "commercial_ad", label: "Commercial / Ad" },
+  { id: "bible_pitch", label: "Series Bible, Treatment, and Logline/Pitch" },
   { id: "audio_drama", label: "Audio Drama" },
 ];
 
@@ -30,6 +77,12 @@ export const SCRIPT_ANALYSIS_MODES: { id: ScriptAnalysisMode; label: string }[] 
   { id: "full_script", label: "Full Script" },
   { id: "scene_analysis", label: "Scene Analysis" },
   { id: "dialogue_punchup", label: "Dialogue Punch-Up" },
+  { id: "coverage_report", label: "Coverage Report (Pass / Consider / Recommend)" },
+  { id: "structure_beat_sheet", label: "Structure and Beat Sheet" },
+  { id: "character_analysis", label: "Character Analysis" },
+  { id: "pacing_hook", label: "Pacing and Hook/Cliffhanger Check" },
+  { id: "formatting_check", label: "Formatting Check" },
+  { id: "logline_pitch", label: "Logline and Pitch Review" },
 ];
 
 const SHARED_EVALUATION_FRAMEWORK = `
@@ -164,6 +217,124 @@ ${SHARED_EVALUATION_FRAMEWORK}
 Quote exact lines and sound cues that succeed or fail.
 
 Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  general: `You are a master story analyst and professional script doctor evaluating screenplays across international formats.
+You provide an objective, high-level industry assessment with no regional bias.
+
+EVALUATION FOCUS:
+- Core Story Engine: Clear protagonist, tangible goal, severe stakes, escalating opposition.
+- Visual Storytelling: Show, don't tell. Action lines should capture what the camera sees and audience hears.
+- Dialogue Subtext: Characters must speak with distinct voices, subtext, and personal rhythms rather than explaining the plot.
+- Pacing & Scene Propulsion: Every scene must turn the story on a new axis and end with momentum.
+- Format Discipline: Industry standard sluglines, action paragraphs (max 4 lines), clean cues.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  bollywood: `You are a senior creative executive and script consultant in the Indian film and streaming industry (Bollywood, Pan-Indian cinema, and Indian OTT platforms like Prime Video India, Netflix India, Hotstar).
+You evaluate whether this script has commercial viability, strong emotional core (rasa), multi-generational resonance, compelling character arcs, high dramatic stakes, and strong interval/midpoint escalation.
+
+INDIAN FILM & OTT STANDARDS:
+- Emotional Highs & Drama: The central emotion must grip the audience completely. Relationships, family ties, and moral loyalty must carry emotional weight.
+- Interval Point & Midpoint Engine: Scripts must build toward an unforgettable, earth-shaking midpoint/interval turn.
+- Mass vs. Multiplex Balance: Check whether high-concept ideas are accessible, with punchy dialogues, memorable confrontation scenes, and cinematic set-pieces.
+- Music / Cultural Cadence: If applicable, consider song/score integration points and cultural authenticity.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  netflix_global: `You are a global originals development executive at a major worldwide streaming platform (Netflix Global, Amazon Studios, Apple TV+).
+You evaluate whether this script has international breakout potential: a universally gripping high-concept hook, deep emotional urgency, relentless bingeability, and hyper-local cultural specificity that translates across continents (like Squid Game, Dark, or Money Heist).
+
+STREAMING EXEC CRITERIA:
+- The Global Hook: Can this premise be explained in one irresistible sentence that stops someone scrolling?
+- Bingeability & Drop-off Defense: Does each episode/scene end on a dilemma or revelation that forces the next watch?
+- World-Building & Tone: Distinctive visual and atmospheric identity.
+- Subtextual Character Work: Complex, morally grey characters with universal human struggles.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  korean_drama: `You are a senior drama series development producer in the Korean entertainment industry (Studio Dragon, JTBC, CJ ENM).
+You evaluate scripts for emotional tension, high-concept narrative hooks, exquisite character dynamics, fast-paced conflict escalation, and masterclass episodic cliffhangers.
+
+K-DRAMA EXCELLENCE METRICS:
+- Emotional Momentum & Melodrama Craft: Strong underlying pathos, yearning, or sharp vengeance.
+- Distinct Character Polarities: Striking contrast between leads, undeniable chemistry, and compelling moral dilemmas.
+- Rapid Escalation: Twists and turns must happen faster than Western standards, constantly subverting expectations.
+- End-of-Episode Cliffhangers: Absolute mastery of the emotional or plot freeze-frame moment.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  vertical_microdrama: `You are a head writer and content director for top vertical micro-drama platforms (ReelShort, DramaBox, ShortMax).
+You evaluate ultra-fast serialized micro-drama scripts (60-90 second episodes).
+
+THE VERTICAL MICRO-DRAMA LAW:
+- Hook in 3-5 Seconds: The audience will swipe away if there isn't immediate shock, humiliation, romance spark, or confrontation.
+- High-Tension Tropes: Billionaire in disguise, rejected mate, forced marriage, secret heir, ruthless revenge, public humiliation, sudden pregnancy.
+- Cliffhanger Every 60-90 Seconds: Every single scene/episode MUST end on a micro-cliffhanger to trigger the next coin unlock.
+- Zero Fluff: No long establishing shots or small talk. Jump straight into the conflict, turn the tables, end on the gasp.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  youtube_web: `You are a digital series showrunner and creator consultant evaluating YouTube and web series scripts.
+Evaluate audience retention in the critical first 30 seconds, visual thumbnail-worthy moments, budget-friendly high-impact production setups, distinct episodic branding, and active audience engagement potential.
+
+WEB SERIES PRINCIPLES:
+- Instant Cold Open: High energy or intrigue from line 1.
+- Production Economy: High impact with contained locations and nimble cast size.
+- Pacing for Attention Economy: Cut redundant transitions; keep the narrative rhythm kinetic.
+- Character Voice & Memorability: Punchy, quotable dialogue tailored for social sharing.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  stage_theatre: `You are a resident dramaturge and literary manager for major theatrical companies.
+You evaluate stage plays for theatrical economy, staging feasibility, acoustic and dialogue cadence, deep subtext, character presence, and dramatic tension sustained in physical space.
+
+THEATRICAL CRAFT:
+- Spoken Cadence & Musicality: Dialogue is the primary vehicle; rhythm, pause, silence, and overlap must be intentional.
+- Spatial Awareness & Staging: Does the action take advantage of the stage, entrances, exits, and proscenium/thrust dynamics?
+- Thematic Resonance: Intellectual and emotional depth that rewards live collective viewing.
+- Character Agency & Tension: Confined space psychological pressure cooker.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  video_game: `You are a lead narrative designer and game writer for narrative-driven video games and interactive entertainment (RPG, cinematic action-adventure).
+Evaluate world-building, narrative branching suitability, player agency, environmental storytelling, interactive dialogue options, and how well narrative beats integrate with gameplay loop and emotional immersion.
+
+GAME NARRATIVE PRINCIPLES:
+- Player Agency vs. Authorial Voice: Does the narrative invite player investment or force passive viewing?
+- Environmental & Visual Lore: Delivering story through the world and mechanics rather than endless cutscenes.
+- Pacing with Gameplay: Action beats and quiet character moments balanced around interactive pacing.
+- Branching Viability: Dialogue trees with meaningful character expression.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
+
+  contest_submission: `You are a judge for premier international screenwriting competitions (Academy Nicholl Fellowships, Austin Film Festival, Page International).
+You read the script with the highest competitive lens:
+
+CONTEST READER STANDARDS:
+- Pages 1-10 are Decisive: Top 5% scripts exhibit undeniable voice, evocative description, and effortless formatting within 3 pages.
+- Fresh Perspective & Voice: Zero points for formulaic copies of existing hits. Unique angles on theme and tone stand out.
+- Impeccable Formatting: Zero tolerance for amateur errors, missing scene headings, dense action paragraphs, or unformatted dialogue.
+- Subtext & Depth: Great writers never have characters state the theme or emotions directly.
+
+${SHARED_EVALUATION_FRAMEWORK}
+
+Return your analysis as structured JSON only — no markdown outside JSON.`,
 };
 
 export function isValidScriptIndustry(id: string): id is ScriptIndustry {
@@ -176,7 +347,7 @@ export async function getScriptAnalyzerPrompt(industry: string): Promise<string>
   const snap = await db.collection("script_analyzer_prompts").doc(industry).get();
   const stored = String(snap.data()?.prompt || "").trim();
   if (stored) return stored;
-  return DEFAULT_SCRIPT_ANALYZER_PROMPTS[key] || DEFAULT_SCRIPT_ANALYZER_PROMPTS.hollywood;
+  return DEFAULT_SCRIPT_ANALYZER_PROMPTS[key] || DEFAULT_SCRIPT_ANALYZER_PROMPTS.general || DEFAULT_SCRIPT_ANALYZER_PROMPTS.hollywood;
 }
 
 export async function listScriptAnalyzerIndustries(): Promise<string[]> {

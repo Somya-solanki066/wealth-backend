@@ -60,7 +60,7 @@ router.post("/checkout", verifyFirebaseToken, async (req: AuthenticatedRequest, 
       line_items: [
         {
           price_data: {
-            currency: "ngn",
+            currency: "usd",
             product_data: {
               name: product.name,
               description: product.description,
@@ -120,7 +120,7 @@ router.post("/verify-session", verifyFirebaseToken, async (req: AuthenticatedReq
       courseId,
       stripeSessionId: session.id,
       amountTotal: session.amount_total || 0,
-      currency: session.currency || "ngn",
+      currency: session.currency || "usd",
       source: "verify-session",
     });
 
@@ -171,7 +171,7 @@ export async function handleCourseCheckoutWebhook(session: Stripe.Checkout.Sessi
     courseId,
     stripeSessionId: session.id,
     amountTotal: session.amount_total || 0,
-    currency: session.currency || "ngn",
+    currency: session.currency || "usd",
     source: "webhook",
   });
 }

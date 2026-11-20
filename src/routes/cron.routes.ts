@@ -71,9 +71,14 @@ async function runSubscriptionReminders(_req: Request, res: Response) {
         to: email,
         vars: {
           name: data.displayName || "Writer",
+          first_name: String(data.displayName || "there").split(/\s+/)[0],
           planName,
+          tier_name: planName,
           expiryDate,
+          renewal_date: expiryDate,
+          amount: plan?.price || "",
           renewUrl,
+          app_link: frontendUrl(),
         },
         dedupeKey: `renewal:${doc.id}:${dayKey}`,
       });
@@ -143,7 +148,9 @@ async function runInactivityEmails(_req: Request, res: Response) {
         to: email,
         vars: {
           name: data.displayName || "Writer",
+          first_name: String(data.displayName || "there").split(/\s+/)[0],
           dashboardUrl: dash,
+          app_link: dash,
           daysInactive: String(daysInactive),
         },
         dedupeKey: `inactivity:${doc.id}:${last || "none"}`,

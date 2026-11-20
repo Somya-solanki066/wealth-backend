@@ -302,7 +302,7 @@ router.post("/checkout", verifyFirebaseToken, async (req: AuthenticatedRequest, 
       line_items: [
         {
           price_data: {
-            currency: "ngn",
+            currency: "usd",
             product_data: {
               name: `${listing.title} (${dealType})`,
               description: `Script Marketplace ${dealType} · platform fee ${Math.round(commissionRate * 100)}%`,
